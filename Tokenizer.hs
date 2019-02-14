@@ -5,6 +5,8 @@ import           Combinators
 import           Control.Applicative (Alternative (..))
 import           Control.Monad       (when)
 
+import Combinators
+
 data Token = Ident String
            | KeyWord String
            | Number Integer -- Change Number type if you work with something other than Int
@@ -12,6 +14,7 @@ data Token = Ident String
   deriving (Show, Eq)
 
 tokenize :: String -> [Token]
+<<<<<<< HEAD
 tokenize = maybe (error "Parsing error.") snd . runParser tokensP
 
 tokensP :: Parser String [Token]
@@ -76,3 +79,15 @@ intP = do
 
     satDigit :: Parser String Char
     satDigit = satisfy (`elem` digits)
+=======
+tokenize input = undefined
+
+parseIdent :: Parser String String
+parseIdent = undefined
+
+parseKeyWord :: Parser String String
+parseKeyWord = undefined
+
+parseNumber :: Parser String Int
+parseNumber = undefined
+>>>>>>> Second homework
