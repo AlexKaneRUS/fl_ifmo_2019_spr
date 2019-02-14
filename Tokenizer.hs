@@ -1,13 +1,12 @@
 module Tokenizer
   where
 
+import           Combinators
 import           Control.Monad    (when)
 import           Text.Parsec      (Parsec, choice, eof, getInput, many, many1,
                                    parse, try, (<|>))
 import           Text.Parsec.Char (anyChar, char, digit, letter, satisfy, space,
                                    string)
-
-import           Debug.Trace      (trace)
 
 type Parser = Parsec String ()
 
