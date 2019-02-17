@@ -2,13 +2,10 @@ module Tokenizer
   where
 
 import           Combinators
-import           Control.Monad    (when)
-import           Text.Parsec      (Parsec, choice, eof, getInput, many, many1,
-                                   parse, try, (<|>))
-import           Text.Parsec.Char (anyChar, char, digit, letter, satisfy, space,
-                                   string)
+import           Control.Applicative (Alternative (..))
+import           Control.Monad       (when)
 
-type Parser = Parsec String ()
+import           Debug.Trace         (trace)
 
 data Token = Ident String
            | KeyWord String
@@ -17,12 +14,12 @@ data Token = Ident String
   deriving (Show, Eq)
 
 tokenize :: String -> [Token]
-tokenize = either (error . show) id . parse tokensP "Tokens parser."
+tokenize = maybe (error "Parsing error.") snd . runParser tokensP
 
-tokensP :: Parser [Token]
+tokensP :: Parser String [Token]
 tokensP = do
     begToken  <- many space *> (tokenP <|> eof *> pure EOF)
-    resTokens <- many $ many1 space *> (tokenP <|> eof *> pure EOF)
+    resTokens <- many $ some space *> (tokenP <|> eof *> pure EOF)
 
     many space
 
@@ -35,8 +32,8 @@ tokensP = do
 -- Python lexical structure.
 --------------------------------------------------------------------------------
 
-tokenP :: Parser Token
-tokenP = try keyWordP <|> try intP <|> try identP
+tokenP :: Parser String Token
+tokenP = keyWordP <|> intP <|> identP
 
 -- Identifier in Python looks like this:
 --   ident  = ('_' | letter) ident'
@@ -44,13 +41,13 @@ tokenP = try keyWordP <|> try intP <|> try identP
 --   letter = 'a'...'z','A'...'Z'
 --   digit  = '0'...'9'
 --
-identP :: Parser Token
+identP :: Parser String Token
 identP = Ident <$> ((:) <$> (char '_' <|> letter) <*> many (char '_' <|> letter <|> digit))
 
 -- There is fixed number of keywords in Python. Should check them all.
 --
-keyWordP :: Parser Token
-keyWordP = KeyWord <$> (choice $ fmap (try . string) listOfKeyWords)
+keyWordP :: Parser String Token
+keyWordP = KeyWord <$> keywords listOfKeyWords
   where
     listOfKeyWords = [ "False", "await", "else", "import", "pass"
                      , "None", "break", "except", "in", "raise"
@@ -66,18 +63,18 @@ keyWordP = KeyWord <$> (choice $ fmap (try . string) listOfKeyWords)
 --   nonzerodigit = '1'...'9'
 --   digit        = '0'...'9'
 --
-intP :: Parser Token
+intP :: Parser String Token
 intP = do
     firstChar <- anyChar
 
     when (firstChar == '_' || firstChar `notElem` digits) (fail "Can't parse Number.")
 
     case firstChar of
-      '0' -> many (try (char '_' *> char '0') <|> char '0') >> pure (Number 0)
+      '0' -> many ((char '_' *> char '0') <|> char '0') >> pure (Number 0)
       x   -> Number . read . filter (/= '_')
-             <$> ((x :) <$> many (try (char '_' *> satDigit) <|> satDigit))
+             <$> ((x :) <$> many ((char '_' *> satDigit) <|> satDigit))
   where
     digits = ['0'..'9']
 
-    satDigit :: Parser Char
+    satDigit :: Parser String Char
     satDigit = satisfy (`elem` digits)
