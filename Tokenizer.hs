@@ -5,11 +5,9 @@ import           Combinators
 import           Control.Applicative (Alternative (..))
 import           Control.Monad       (when)
 
-import           Debug.Trace         (trace)
-
 data Token = Ident String
            | KeyWord String
-           | Number Int     -- Change Number type if you work with something other than Int
+           | Number Integer -- Change Number type if you work with something other than Int
            | EOF
   deriving (Show, Eq)
 

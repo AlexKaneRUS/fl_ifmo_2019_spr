@@ -42,6 +42,7 @@ runTests = do
 
     testParser "00_0000_000_0_00 21_0000_32_1" [Number 0, Number 210000321]
     testParser "1 2 3   4 5 6    7_7 9" [Number 1, Number 2, Number 3, Number 4, Number 5, Number 6, Number 77, Number 9]
+    testParser "79228162514264337593" [Number 79228162514264337593]
 
     putStrLn ""
 
