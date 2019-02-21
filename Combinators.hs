@@ -27,7 +27,9 @@ insert t s = if find t s then t
         replace i = take i l ++ [(x, helper (snd $ l !! i) xs)] ++ drop (i + 1) l
 
 -- Parsing result is some payload and a suffix of the input which is yet to be parsed
-newtype Parser str ok = Parser { runParser :: str -> Maybe (str, ok) }
+-- newtype Parser str ok = Parser { runParser :: str -> Maybe (str, ok) }
+
+newtype Parser str ok err = Parser { runParser :: str -> Either err (str, ok) }
 
 instance Functor (Parser str) where
   fmap f p = Parser $ \s ->
