@@ -5,8 +5,6 @@ import           Combinators
 import           Control.Applicative (Alternative (..))
 import           Control.Monad       (when)
 
-import Combinators
-
 data Token = Ident String
            | KeyWord String
            | Number Integer -- Change Number type if you work with something other than Int
@@ -14,7 +12,6 @@ data Token = Ident String
   deriving (Show, Eq)
 
 tokenize :: String -> [Token]
-<<<<<<< HEAD
 tokenize = maybe (error "Parsing error.") snd . runParser tokensP
 
 tokensP :: Parser String [Token]
@@ -27,7 +24,7 @@ tokensP = do
     curStream <- getInput
     when (not (null curStream)) (fail "Couldn't parse whole string.")
 
-    pure $ filter (/= EOF) $ begToken : resTokens
+    pure $ begToken : resTokens
 
 --------------------------------------------------------------------------------
 -- Python lexical structure.
@@ -68,7 +65,7 @@ intP :: Parser String Token
 intP = do
     firstChar <- anyChar
 
-    when (firstChar == '_' || firstChar `notElem` digits) (fail "Can't parse Number.")
+    when (firstChar `notElem` digits) (fail "Can't parse Number.")
 
     case firstChar of
       '0' -> many ((char '_' *> char '0') <|> char '0') >> pure (Number 0)
@@ -79,15 +76,3 @@ intP = do
 
     satDigit :: Parser String Char
     satDigit = satisfy (`elem` digits)
-=======
-tokenize input = undefined
-
-parseIdent :: Parser String String
-parseIdent = undefined
-
-parseKeyWord :: Parser String String
-parseKeyWord = undefined
-
-parseNumber :: Parser String Int
-parseNumber = undefined
->>>>>>> Second homework
