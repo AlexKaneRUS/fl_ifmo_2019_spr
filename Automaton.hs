@@ -26,41 +26,50 @@ data Automaton s q = Automaton { sigma      :: Set s
 -- * Any of the terminal states is not a state
 -- * Delta function is defined on not-a-state or not-a-symbol-from-sigma
 -- Pick appropriate types for s and q
-parseAutomaton :: String -> Maybe (Automaton Char Int)
+parseAutomaton :: String -> Maybe (Automaton String String)
 parseAutomaton = fmap snd . runParser automatonP
 
-automatonP :: Parser String (Automaton Char Int)
+automatonP :: Parser String (Automaton String String)
 automatonP = do
-    _ <- char '<'
+    _ <- char '<' *> many space
 
-    sigma' <- Set.fromList <$> listP letter
+    sigma' <- Set.fromList <$> listP manyCharP
 
-    _       <- char ','
-    states' <- Set.fromList <$> listP int
+    colonP
+    states' <- Set.fromList <$> listP manyCharP
     when (Set.null states') $ fail "Set of states is empty."
 
-    _          <- char ','
-    initStateM <- listToMaybe <$> listP int
+    colonP
+    initStateM <- listToMaybe <$> listP manyCharP
     initState' <- maybe (fail "initState is not provided.") pure initStateM
     when (Set.notMember initState' states') $ fail "initState not in states."
 
-    _           <- char ','
-    termStates' <- Set.fromList <$> listP int
+    colonP
+    termStates' <- Set.fromList <$> listP manyCharP
     when (not (Set.isSubsetOf termStates' states')) $ fail "terminalStates is not subset of states."
 
-    _      <- char ','
-    deltaL <- listP $ tripleP int letter
+    colonP
+    deltaL <- listP $ tripleP manyCharP manyCharP
     delta' <- listOfTriplesToMap states' sigma' deltaL
 
-    _ <- char '>'
+    _ <- many space <* char '>'
 
     pure $ Automaton sigma' states' initState' termStates' delta'
   where
+    colonP :: Parser String ()
+    colonP = const () <$> many space <* char ',' <* many space
+
+    manyCharP :: Parser String String
+    manyCharP = takeWhileP (\x -> x /= ',' && x /= ' ' && x /= '>' && x /= ')')
+
     listP :: Parser String a -> Parser String [a]
     listP p = parseList p (char ',') (char '<') (char '>') 1
 
     tripleP :: Parser String a -> Parser String b -> Parser String (a, b, a)
-    tripleP aP bP = char '(' *> pure (,,) <*> aP <* char ',' <* space <*> bP <* char ',' <* space <*> aP <* char ')'
+    tripleP aP bP = char '(' *> pure (,,)
+                 <* many space <*> aP <* many space <* char ','
+                 <* many space <*> bP <* many space <* char ','
+                 <* many space <*> aP <* many space <* char ')'
 
     listOfTriplesToMap :: (Ord a, Ord b) => Set a -> Set b -> [(a, b, a)] -> Parser String (Map (a, b) (Maybe a))
     listOfTriplesToMap st sig l = do

@@ -124,19 +124,32 @@ int = read <$> some digit
 eof :: Parser String ()
 eof = Parser $ \str -> if null str then Just ([], ()) else Nothing
 
-getInput :: Parser String String
+getInput :: Parser [a] [a]
 getInput = Parser $ \str -> Just (str, str)
 
+setInput :: [a] -> Parser [a] ()
+setInput str = Parser $ \_ -> Just (str, ())
+
+takeWhileP :: (a -> Bool) -> Parser [a] [a]
+takeWhileP predicate = do
+    s <- getInput
+
+    case s of
+      []       -> pure []
+      (x : xs) -> case predicate x of
+        True -> setInput xs >> (:) <$> pure x <*> takeWhileP predicate
+        _    -> pure []
+
+
 parseList :: Parser String el -> Parser String del -> Parser String lbr -> Parser String rbr -> Int -> Parser String [el]
-parseList elementP delimP lbrP rbrP minimumNumberElems = (char '<' *> many space *> char '<' *> pure []) <|> do
-    _  <- many space
+parseList elementP delimP lbrP rbrP minimumNumberElems | minimumNumberElems < 0 = fail "Invalid length."
+                                                       | otherwise = (lbrP *> rbrP *> pure []) <|> do
     _  <- lbrP
 
     resHead <- many space *> elementP <* many space
     resTail <- many $ delimP *> many space *> elementP <* many space
 
     _ <- rbrP
-    _ <- many space
 
     if length (resHead : resTail) >= minimumNumberElems
       then pure (resHead : resTail)
