@@ -143,7 +143,7 @@ takeWhileP predicate = do
 
 parseList :: Parser String el -> Parser String del -> Parser String lbr -> Parser String rbr -> Int -> Parser String [el]
 parseList elementP delimP lbrP rbrP minimumNumberElems | minimumNumberElems < 0 = fail "Invalid length."
-                                                       | otherwise = (lbrP *> rbrP *> pure []) <|> do
+                                                       | otherwise = (lbrP *> many space *> rbrP *> pure []) <|> do
     _  <- lbrP
 
     resHead <- many space *> elementP <* many space
