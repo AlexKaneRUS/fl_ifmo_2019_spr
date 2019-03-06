@@ -6,6 +6,7 @@ import           Control.Applicative (Alternative (..))
 import           Control.Monad       (join)
 import           Data.Char           (isAlpha, isDigit, isSpace, isSymbol)
 import           Data.List           (elemIndex, lookup)
+import           Data.Maybe          (listToMaybe)
 import           Data.Tuple          (swap)
 
 data Trie = Trie Bool [(Char, Trie)] deriving (Eq, Show)
@@ -29,121 +30,160 @@ insert t s = if find t s then t
 -- Parsing result is some payload and a suffix of the input which is yet to be parsed
 -- newtype Parser str ok = Parser { runParser :: str -> Maybe (str, ok) }
 
-newtype Parser str ok err = Parser { runParser :: str -> Either err (str, ok) }
+newtype Parser e s ok = Parser { runParser :: Tokens s -> Either (BundleOfErrors e) (Tokens s, ok) }
 
-instance Functor (Parser str) where
+type ParserS ok = Parser String Char ok
+
+parse :: Parser e Char ok -> String -> Either (BundleOfErrors e) ok
+parse p stream = snd <$> runParser p finalTokens
+  where
+    manyLines = lines stream
+    tokens    = concat $ zipWith markLine [0..] manyLines
+
+    finalTokens = if last stream == '\n' then tokens else init tokens
+
+    markLine :: Int -> String -> Tokens Char
+    markLine i s = zipWith (\a b -> Token (i, a) b) [0..] s ++ [Token (i, length s) '\n']
+
+type Tokens s = [Token s]
+
+coordsFromTokens :: Tokens s -> Maybe (Int, Int)
+coordsFromTokens = fmap coords . listToMaybe
+
+data Token s = Token { coords :: (Int, Int)
+                     , symbol :: s
+                     }
+  deriving (Eq, Show)
+
+type BundleOfErrors e = [ParserError e]
+
+data ParserError e = ParserError { place :: Maybe (Int, Int)
+                                 , error :: String
+                                 }
+  deriving (Eq, Show)
+
+instance Functor (Parser e str) where
   fmap f p = Parser $ \s ->
     case runParser p s of
-      Just (s', a) -> Just (s', f a)
-      _            -> Nothing
+      Right (s', a) -> Right (s', f a)
+      Left e        -> Left e
 
-instance Applicative (Parser str) where
-  pure ok = Parser $ \str -> Just (str, ok)
+instance Applicative (Parser e str) where
+  pure ok = Parser $ \str -> Right (str, ok)
 
   p <*> q = Parser $ join . ((\(s', f) -> runParser (fmap f q) s') <$>) . runParser p
 
-instance Alternative (Parser str) where
+instance Alternative (Parser e str) where
   p <|> q = Parser $ \s ->
     case runParser p s of
-      Nothing -> runParser q s
-      x       -> x
+      Left e ->
+        case runParser q s of
+          Left e' -> Left $ e ++ e'
+          x       -> x
+      x      -> x
 
-  empty = Parser $ const Nothing
+  empty = Parser $ const $ Left []
 
-  many p = Parser $ Just . helper
+  many p = Parser $ Right . helper
     where
-      helper str = case runParser p str of
-        Just (str', a) -> (a :) <$> helper str'
-        _              -> (str, [])
+      helper str =
+        case runParser p str of
+          Right (str', a) -> (a :) <$> helper str'
+          _               -> (str, [])
 
-  some p = Parser $ \str -> case runParser (many p) str of
-    Just (_, []) -> Nothing
-    r@Just{}     -> r
-    _            -> Nothing
+  some p = Parser $ \str ->
+    case runParser (many p) str of
+      Right (str, []) -> Left $ [ParserError (coordsFromTokens str) "Can't parse next symbol."]
+      r@Right{}       -> r
+      Left e          -> Left e
 
-
-instance Monad (Parser str) where
+instance Monad (Parser e str) where
   p >>= q = Parser $ \s ->
     case runParser p s of
-      Just (str, ok) -> runParser (q ok) str
-      _              -> Nothing
+      Right (str, ok) -> runParser (q ok) str
+      Left e          -> Left e
 
-  fail _ = Parser $ const Nothing
+  fail _ = Parser $ const $ Left []
 
 -- Parser which always succeedes consuming no input
-success :: ok -> Parser str ok
+success :: ok -> Parser str e ok
 success = pure
 
 -- Default sequence combinator
 -- If the first parser succeedes then the second parser is used
 -- If the first does not succeed then the seconsd one is never tried
 -- The result is collected into a pair
-seq :: Parser str a -> Parser str b -> Parser str (a, b)
+seq :: Parser e str a -> Parser e str b -> Parser e str (a, b)
 p `seq` q = Parser $ \s ->
   case runParser p s of
-    Just (str, ok) -> runParser (fmap ((,) ok) q) str
-    _              -> Nothing
+    Right (str, ok) -> runParser (fmap ((,) ok) q) str
+    Left e          -> Left e
+
+checkToken :: (s -> Bool) -> Token s -> Bool
+checkToken p = p . symbol
 
 -- Parses keywords
-keywords :: [String] -> Parser String String
+keywords :: [String] -> Parser String Char String
 keywords kws = Parser $ \str ->
-  let parsed = takeWhile (not . isSpace) str in
-  if find bor parsed
-    then Just (dropWhile (not . isSpace) str, parsed)
-    else Nothing
+  let parsed    = takeWhile (checkToken (not . isSpace)) str
+      parsedStr = fmap symbol parsed
+  in
+  if find bor parsedStr
+    then Right (dropWhile (checkToken (not . isSpace)) str, parsedStr)
+    else Left [ParserError (coordsFromTokens parsed) "Can't parse keyword."]
   where
     bor = foldl insert (Trie False []) kws
 
 -- Checks if the first element of the input is the given token
-token :: Eq token => token -> Parser [token] token
+token :: Eq token => token -> Parser e token token
 token = satisfy . (==)
 
-satisfy :: Eq token => (token -> Bool) -> Parser [token] token
+satisfy :: (token -> Bool) -> Parser e token token
 satisfy p = Parser $ \s ->
   case s of
-    (t' : s') | p t' -> Just (s', t')
-    _         -> Nothing
+    (t' : s') | p (symbol t') -> Right (s', symbol t')
+    _                         -> Left $ [ParserError (coordsFromTokens s) "Token doesn't satisfy condition."]
 
 -- Checks if the first character of the string is the one given
-char :: Char -> Parser String Char
+char :: Char -> Parser e Char Char
 char = token
 
-space :: Parser String Char
+space :: Parser e Char Char
 space = satisfy isSpace
 
-letter :: Parser String Char
+letter :: Parser e Char Char
 letter = satisfy isAlpha
 
-anyChar :: Parser String Char
+anyChar :: Parser e Char Char
 anyChar = satisfy (const True)
 
-digit :: Parser String Char
+digit :: Parser e Char Char
 digit = satisfy isDigit
 
-int :: Parser String Int
+int :: Parser e Char Int
 int = read <$> some digit
 
-eof :: Parser String ()
-eof = Parser $ \str -> if null str then Just ([], ()) else Nothing
+eof :: Parser e a ()
+eof = Parser $ \str -> if null str then pure ([], ()) else Left $ [ParserError (coordsFromTokens str) "Can't parse EOF."]
 
-getInput :: Parser [a] [a]
-getInput = Parser $ \str -> Just (str, str)
+getInput :: Parser e a (Tokens a)
+getInput = Parser $ \str -> pure (str, str)
 
-setInput :: [a] -> Parser [a] ()
-setInput str = Parser $ \_ -> Just (str, ())
+setInput :: Tokens a -> Parser e a ()
+setInput str = Parser $ \_ -> pure (str, ())
 
-takeWhileP :: (a -> Bool) -> Parser [a] [a]
+takeWhileP :: (a -> Bool) -> Parser e a [a]
 takeWhileP predicate = do
     s <- getInput
 
     case s of
       []       -> pure []
-      (x : xs) -> case predicate x of
-        True -> setInput xs >> (:) <$> pure x <*> takeWhileP predicate
+      (x : xs) -> case predicate (symbol x) of
+        True -> setInput xs >> (:) <$> pure (symbol x) <*> takeWhileP predicate
         _    -> pure []
 
 
-parseList :: Parser String el -> Parser String del -> Parser String lbr -> Parser String rbr -> Int -> Parser String [el]
+parseList :: Parser e Char el -> Parser e Char del -> Parser e Char lbr -> Parser e Char rbr -> Int -> Parser e Char [el]
 parseList elementP delimP lbrP rbrP minimumNumberElems | minimumNumberElems < 0 = fail "Invalid length."
                                                        | otherwise = (lbrP *> many space *> rbrP *> pure []) <|> do
     _  <- lbrP
