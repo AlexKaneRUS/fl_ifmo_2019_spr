@@ -95,14 +95,14 @@ automatonP = do
 
 
 -- Checks if the automaton is deterministic (only one transition for each state and each input symbol)
-isDFA :: Automaton a b -> Bool
-isDFA = all ((<= 1) . length . snd) . Map.toList . delta
+isDFA :: Automaton String b -> Bool
+isDFA auto = all ((<= 1) . length . snd) transList && all ((/= "\\epsilon") . snd . fst) transList
+  where
+    transList = Map.toList . delta $ auto
 
 -- Checks if the automaton is nondeterministic (eps-transition or multiple transitions for a state and a symbol)
 isNFA :: Automaton String b -> Bool
-isNFA auto = any ((> 1) . length . snd) transList || any ((== "\\epsilon") . snd . fst) transList
-  where
-    transList = Map.toList . delta $ auto
+isNFA = const True
 
 -- Checks if the automaton is complete (there exists a transition for each state and each input symbol)
 isComplete :: Automaton a b -> Bool
