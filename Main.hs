@@ -15,7 +15,8 @@ automatonInfo auto =
 main :: IO ()
 main = do
   runTokTests
-  testErrors
+  runTestErrors
+  runTestMinimality
 
   fileNames <- getArgs
   mapM_
@@ -28,12 +29,27 @@ main = do
     )
     fileNames
 
+testMinimality :: String -> Bool -> IO ()
+testMinimality s b = if fmap isMinimal (parseAutomaton s) == Right b then putStrLn $ "OK: " ++ s
+                     else putStrLn $ "FAIL: " ++ s
+
+runTestMinimality :: IO ()
+runTestMinimality = do
+    putStrLn "Test: minimality."
+
+    let autoEx = "<<0, 1>  , <a, b, c, d, e, f, g> , <a>, <f, g>, <(a, 1, b), (b, 1, a), (b, 0, c), (a, 0, c), (c, 0, d), (c, 1, d), (d, 1, f), (d, 0, e), (e, 0, f), (e, 1, g), (g, 0, g), (g, 1, f), (f, 0, f), (f, 1,f)>>"
+    testMinimality autoEx False
+
+    let autoTrivial = "<<0, 1>, <a, b>, <a>, <b>, <(a, 1, b)>>"
+    testMinimality autoTrivial True
+
+
 testError :: Eq ok => ParserS ok -> String -> BundleOfErrors String -> IO ()
 testError p s errors = if parse p s == Left errors then putStrLn $ "OK: " ++ s
                        else putStrLn $ "FAIL: " ++ s
 
-testErrors :: IO ()
-testErrors = do
+runTestErrors :: IO ()
+runTestErrors = do
     putStrLn "Test: errors."
 
     testError (many space *> (char 'a' <|> char 'b')) "            c" [ ParserError (Just (0, 12)) "Token doesn't satisfy condition."

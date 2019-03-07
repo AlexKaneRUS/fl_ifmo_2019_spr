@@ -7,10 +7,8 @@ import           Combinators
 import           Control.Applicative (many)
 import           Control.Monad       (when)
 import           Data.Bifunctor      (first)
-import           Data.List           (groupBy)
+import           Data.List           (groupBy, nubBy, sortOn)
 import           Data.Maybe          (listToMaybe)
-
-import           Debug.Trace         (trace)
 
 type Set = Set.Set
 type Map = Map.Map
@@ -112,33 +110,72 @@ isComplete = all ((== 1) . length . snd) . Map.toList . delta
 
 -- Checks if the automaton is minimal (only for DFAs: the number of states is minimal)
 isMinimal :: Automaton String String -> Bool
-isMinimal auto = isDFA auto && undefined
+isMinimal auto = isDFA auto && null res
   where
-    completeDelta  = fmap (\x -> if null x then ["null"] else x) $ delta auto
-    revDelta       = Map.fromList $ fmap (\((a, b), [a']) -> ((a', b), a)) $ Map.toList completeDelta
+    nullAdd       = Map.fromList (fmap (\x -> (("null", x), ["null"])) $ Set.toList $ sigma auto)
+    completeDelta = fmap (\x -> if null x then ["null"] else x) (delta auto) `Map.union` nullAdd
+    revDelta''    = Map.fromList
+                  $ ungroups . sortOn fst
+                  $ fmap (\((a, b), [a']) -> (a', (a, b)))
+                  $ Map.toList completeDelta
+    revDelta'     = Map.mapWithKey (const . maybe [] id . flip Map.lookup revDelta'') graphMap
 
     reachableStates = dfs (initState auto) []
+    revDelta        = fmap (filter ((`elem` reachableStates) . fst)) revDelta'
 
-    table = [[False | _ <- [0.. length reachableStates]] | _ <- [0.. length reachableStates]]
+    stateToInd = Map.fromList $ zip reachableStates [0.. length reachableStates - 1]
 
-    allPairs = [((i, reachableStates !! i), (j, reachableStates !! j)) | i <- [0.. length reachableStates], j <- [0.. length reachableStates]]
+    table'   = [[False | _ <- [0.. length reachableStates - 1]] | _ <- [0.. length reachableStates - 1]]
+    allPairs = [(x, y) | x <- reachableStates, y <- reachableStates]
 
-    initTableQueue :: [((Int, String), (Int, String))] -> [[Bool]] -> [(String, String)] -> ([[Bool]], [(String, String)])
-    initTableQueue [] b q            = (b, q)
-    initTableQueue (((i, x), (j, y)) : xs) b q | diffCond  = res
-                                               | otherwise = initTableQueue xs b q
+    (initTable, initQueue) = initTableQueue allPairs table' []
+    resTable               = recurse initQueue initTable
+
+    equalStates = [(i, j) | i <- [0.. length reachableStates - 1], j <- [0.. length reachableStates - 1], not (resTable !! i !! j)]
+    res         = filter (\(x, y) -> x /= y) $ nubBy (\(x, y) (x', y') -> x == x' && y == y' || x == y' && y == x') equalStates
+
+    recurse :: [(String, String)] -> [[Bool]] -> [[Bool]]
+    recurse [] table            = table
+    recurse ((x, y) : xs) table | table !! i !! j || table !! j !! i = recurse (xs ++ prevs) newTable
+                                | otherwise                          = recurse xs table
       where
-        terms = termStates auto
+        i = stateToInd Map.! x
+        j = stateToInd Map.! y
+
+        prevsX = revDelta Map.! x
+        prevsY = revDelta Map.! y
+
+        possiblePrevs = fmap (\(a, b) -> (fst a, fst b)) $ filter (\(a, b) -> snd a == snd b) [(a, b) | a <- prevsX, b <- prevsY]
+        prevs         = filter (\(a, b) -> not $ table !! (stateToInd Map.! a) !! (stateToInd Map.! b)) possiblePrevs
+
+        newTable = foldl (\table (a, b) -> setElemTable (setElemTable table a b) b a) table prevs
+
+    initTableQueue :: [(String, String)] -> [[Bool]] -> [(String, String)] -> ([[Bool]], [(String, String)])
+    initTableQueue [] t q            = (t, q)
+    initTableQueue ((x, y) : xs) t q | diffCond  = initTableQueue xs (setElemTable (setElemTable t x y) y x) newQueue
+                                     | otherwise = initTableQueue xs t q
+      where
+        terms    = termStates auto
         diffCond = x `Set.notMember` terms && y `Set.member` terms || x `Set.member` terms && y `Set.notMember` terms
 
-        res = undefined
+        newQueue = q ++ [(x, y)]
+
+    setElemTable :: [[Bool]] -> String -> String -> [[Bool]]
+    setElemTable table x y = newTable
+      where
+        i = stateToInd Map.! x
+        j = stateToInd Map.! y
+
+        newTable = fmap (\(ind, line) -> if ind == i then take j line ++ [True] ++ drop (j + 1) line else line) $ zip [0..] table
 
     graphMap = Map.fromList
-             $ (("null", ["null"]) :)
-             $ fmap (\l@(x : _) -> (fst x, fmap snd l))
-             $ groupBy (\x y -> fst x == fst y) $ fmap (\((a, _), [a']) -> (a, a'))
+             $ ungroups
+             $ fmap (\((a, _), [a']) -> (a, a'))
              $ Map.toList completeDelta
 
     dfs :: String -> [String] -> [String]
     dfs cur taken | cur `elem` taken = taken
                   | otherwise        = foldl (flip dfs) (cur : taken) $ graphMap Map.! cur
+
+    ungroups :: Eq a => [(a, b)] -> [(a, [b])]
+    ungroups = fmap (\l@(x : _) -> (fst x, fmap snd l)) . groupBy (\x y -> fst x == fst y)
