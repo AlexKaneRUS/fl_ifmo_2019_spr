@@ -43,6 +43,15 @@ runTestMinimality = do
     let autoTrivial = "<<0, 1>, <a, b>, <a>, <b>, <(a, 1, b)>>"
     testMinimality autoTrivial True
 
+    let autoHard = "<\n"  ++
+                   "<a,b,c,d>,\n" ++
+                   "<0,1,2,3,4,5>,\n" ++
+                   "<0>,\n" ++
+                   "<3,4,5>,\n" ++
+                   "<(0, a, 1), (0, b, 2), (0, d, 2), (0, c, 3), (1, a, 4), (2, b, 4), (2, a, 5), (3, a, 4)>\n" ++
+                   ">"
+    testMinimality autoHard False
+
 
 testError :: Eq ok => ParserS ok -> String -> BundleOfErrors String -> IO ()
 testError p s errors = if parse p s == Left errors then putStrLn $ "OK: " ++ s

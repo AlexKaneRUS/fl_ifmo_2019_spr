@@ -87,15 +87,15 @@ automatonP = do
     triplesToMap :: (Ord a, Ord b) => [(a, b, a)] -> Map (a, b) [a]
     triplesToMap = Map.fromList . groupByKeys . fmap (\(x, y, z) -> ((x, y), z))
 
-    groupByKeys :: (Eq a, Eq b) => [((a, b), a)] -> [((a, b), [a])]
-    groupByKeys = fmap (\l@(x : _) -> (fst x, fmap snd l)) . groupBy (\x y -> fst x == fst y)
+    groupByKeys :: (Eq a, Eq b, Ord a, Ord b) => [((a, b), a)] -> [((a, b), [a])]
+    groupByKeys = fmap (\l@(x : _) -> (fst x, fmap snd l)) . groupBy (\x y -> fst x == fst y) . sortOn fst
 
     productOfSets :: Set a -> Set b -> [(a, b)]
     productOfSets aSet bSet = [(x, y) | x <- Set.toList aSet, y <- Set.toList bSet]
 
 
 -- Checks if the automaton is deterministic (only one transition for each state and each input symbol)
-isDFA :: Automaton String b -> Bool
+isDFA :: Show b => Automaton String b -> Bool
 isDFA auto = all ((<= 1) . length . snd) transList && all ((/= "\\epsilon") . snd . fst) transList
   where
     transList = Map.toList . delta $ auto

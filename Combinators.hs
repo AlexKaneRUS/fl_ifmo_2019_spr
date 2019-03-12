@@ -103,7 +103,7 @@ instance Monad (Parser e str) where
       Right (str, ok) -> runParser (q ok) str
       Left e          -> Left e
 
-  fail _ = Parser $ const $ Left []
+  fail e = Parser $ const $ Left [ParserError Nothing e]
 
 -- Parser which always succeedes consuming no input
 success :: ok -> Parser str e ok
