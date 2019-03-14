@@ -3,12 +3,14 @@ module Automaton where
 import qualified Data.Map.Lazy       as Map
 import qualified Data.Set            as Set
 
-import           Combinators
+import           Combinators         hiding (find)
 import           Control.Applicative (many)
-import           Control.Monad       (when)
-import           Data.Bifunctor      (first)
-import           Data.List           (groupBy, nubBy, sortOn)
-import           Data.Maybe          (listToMaybe)
+import           Control.Monad       (forM_, when)
+import           Control.Monad.State (State, execState, get, modify)
+import           Data.Bifunctor      (bimap, first, second)
+import           Data.List           (find, groupBy, intercalate, nub, nubBy,
+                                      sort, sortOn)
+import           Data.Maybe          (catMaybes, listToMaybe)
 
 type Set = Set.Set
 type Map = Map.Map
@@ -110,19 +112,97 @@ isNFA = const True
 isComplete :: Automaton String b -> Bool
 isComplete auto = isDFA auto && (all ((== 1) . length . snd) . Map.toList . delta $ auto)
 
--- Checks if the automaton is minimal (only for DFAs: the number of states is minimal)
-isMinimal :: Automaton String String -> Bool
-isMinimal auto = isDFA auto && null res
+complete :: Automaton String String -> Automaton String String
+complete auto | isDFA auto = auto { states=newStates, delta=completeDelta }
+              | otherwise  = Prelude.error "Automaton is not DFA."
   where
+    newStates     = "null" `Set.insert` states auto
     nullAdd       = Map.fromList (fmap (\x -> (("null", x), ["null"])) $ Set.toList $ sigma auto)
     completeDelta = fmap (\x -> if null x then ["null"] else x) (delta auto) `Map.union` nullAdd
+
+determinize :: Automaton String String -> Automaton String String
+determinize auto | isDFA auto                                               = auto
+                 | any ((== "\\epsilon") . snd . fst) $ Map.toList oldDelta = Prelude.error "Automaton contains \\epsilon transitions."
+                 | otherwise                                                = res
+  where
+    alphabet = sigma auto
+    oldDelta = delta auto
+    terms    = termStates auto
+    initSt   = initState auto
+
+    (_, manyAutomaton) = execState getDFAByNFA $ ([[initSt]], Automaton alphabet Set.empty [initSt] Set.empty Map.empty)
+
+    newTermStates = foldl (\set x -> if any (`elem` terms) x then x `Set.insert` set else set) Set.empty (states manyAutomaton)
+    newDelta      = Map.fromList $ fmap (bimap (first unionString) (fmap unionString)) $ Map.toList $ delta manyAutomaton
+
+    res = Automaton alphabet (Set.map unionString $ states manyAutomaton) initSt (Set.map unionString newTermStates) newDelta
+
+    getDFAByNFA :: State ([[String]], Automaton String [String]) ()
+    getDFAByNFA = do
+        (queue, _) <- get
+
+        if not (null queue)
+          then do
+              modify (first tail)
+              let pD = head queue
+
+              forM_ alphabet $ \sym -> do
+                  (_, auto') <- get
+                  let qD       = foldl (\set -> (`Set.union` set) . Set.fromList . (oldDelta Map.!) . (flip (,) sym)) Set.empty pD
+                  let qDListed = sort $ Set.toList qD
+
+                  modify (second (\x -> x { delta=Map.insert (pD, sym) [qDListed] $ delta x }))
+
+                  when (qDListed `Set.notMember` (states auto')) $ modify (bimap (++ [qDListed]) (\x -> x { states=Set.insert qDListed $ states x }))
+
+              getDFAByNFA
+          else pure ()
+
+unionString :: [String] -> String
+unionString = intercalate "&" . sort
+
+epsClojure :: Automaton String String -> Automaton String String
+epsClojure auto = res
+  where
+    alphabet = Set.filter (/= "\\epsilon") $ sigma auto
+    delt     = delta auto
+    terms    = termStates auto
+
+    manyNewStates   = fmap (Set.fromList . flip dfs []) $ Set.toList $ states auto
+    newStates       = fmap Set.toList $ nub $ filter (\x -> all (not . (x `Set.isProperSubsetOf`)) manyNewStates) manyNewStates
+
+    newDelta      = getTransitions alphabet newStates delt
+    newTermStates = foldl (\set x -> if any (`elem` terms) x then x `Set.insert` set else set) Set.empty newStates
+    newInitState  = maybe (Prelude.error "Now init state in epsClojure") unionString $ find (initState auto `elem`) newStates
+
+    res = Automaton alphabet (Set.fromList $ fmap unionString newStates) newInitState (Set.map unionString newTermStates) newDelta
+
+    dfs :: String -> [String] -> [String]
+    dfs cur taken | cur `elem` taken = taken
+                  | otherwise        = foldl (flip dfs) (cur : taken) $ delt Map.! (cur, "\\epsilon")
+
+getTransitions :: Set String -> [[String]] -> Map (String, String) [String] -> Map (String, String) [String]
+getTransitions alphabet sts delt = Map.fromList $ do
+    a  <- Set.toList alphabet
+    st <- sts
+
+    let oldTrans = nub $ concatMap ((delt Map.!) . (flip (,) a)) st
+    let newTrans = nub $ concatMap (\x -> filter (x `elem`) sts) oldTrans
+
+    pure $ ((unionString st, a), fmap unionString newTrans)
+
+minimize :: Automaton String String -> Automaton String String
+minimize auto | not (isDFA auto) = Prelude.error "Automaton is not DFA."
+              | otherwise        = res
+  where
+    completeDelta = delta $ complete auto
     revDelta''    = Map.fromList
                   $ ungroups . sortOn fst
                   $ fmap (\((a, b), [a']) -> (a', (a, b)))
                   $ Map.toList completeDelta
     revDelta'     = Map.mapWithKey (const . maybe [] id . flip Map.lookup revDelta'') graphMap
 
-    reachableStates = dfs (initState auto) []
+    reachableStates = dfs graphMap (initState auto) []
     revDelta        = fmap (filter ((`elem` reachableStates) . fst)) revDelta'
 
     stateToInd = Map.fromList $ zip reachableStates [0.. length reachableStates - 1]
@@ -133,8 +213,23 @@ isMinimal auto = isDFA auto && null res
     (initTable, initQueue) = initTableQueue allPairs table' []
     resTable               = recurse initQueue initTable
 
-    equalStates = [(i, j) | i <- [0.. length reachableStates - 1], j <- [0.. length reachableStates - 1], not (resTable !! i !! j)]
-    res         = filter (\(x, y) -> x /= y) $ nubBy (\(x, y) (x', y') -> x == x' && y == y' || x == y' && y == x') equalStates
+    equalStates   = [ (reachableStates !! i, reachableStates !! j)
+                    | i <- [0.. length reachableStates - 1]
+                    , j <- [0.. length reachableStates - 1]
+                    , not (resTable !! i !! j)
+                    , reachableStates !! i /= "null"
+                    , reachableStates !! j /= "null"
+                    ]
+
+    equalityGraph = Map.fromList $ fmap (second pure) equalStates
+    uniStates     = fmap (Set.fromList . flip (dfs equalityGraph) []) $ fmap fst equalStates
+    newStates     = fmap Set.toList $ nub $ filter (\x -> all (not . (x `Set.isProperSubsetOf`)) uniStates) uniStates
+
+    newDelta      = getTransitions (sigma auto) newStates (delta auto)
+    newTermStates = foldl (\set x -> if any (`elem` termStates auto) x then x `Set.insert` set else set) Set.empty newStates
+    newInitState  = maybe (Prelude.error "Now init state in minimize") unionString $ find (initState auto `elem`) newStates
+
+    res = Automaton (sigma auto) (Set.fromList $ fmap unionString newStates) newInitState (Set.map unionString newTermStates) newDelta
 
     recurse :: [(String, String)] -> [[Bool]] -> [[Bool]]
     recurse [] table            = table
@@ -175,9 +270,14 @@ isMinimal auto = isDFA auto && null res
              $ fmap (\((a, _), [a']) -> (a, a'))
              $ Map.toList completeDelta
 
-    dfs :: String -> [String] -> [String]
-    dfs cur taken | cur `elem` taken = taken
-                  | otherwise        = foldl (flip dfs) (cur : taken) $ graphMap Map.! cur
+    dfs :: Map String [String] -> String -> [String] -> [String]
+    dfs m cur taken | cur `elem` taken = taken
+                    | otherwise        = foldl (flip (dfs m)) (cur : taken) $ m Map.! cur
 
     ungroups :: Eq a => [(a, b)] -> [(a, [b])]
     ungroups = fmap (\l@(x : _) -> (fst x, fmap snd l)) . groupBy (\x y -> fst x == fst y)
+
+-- Checks if the automaton is minimal (only for DFAs: the number of states is minimal)
+isMinimal :: Automaton String String -> Bool
+isMinimal auto = isDFA auto && Set.size (states auto) == Set.size (states $ minimize auto)
+
