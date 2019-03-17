@@ -77,7 +77,7 @@ automatonP = do
 
     listOfTriplesToMap :: Ord a => Set a -> Set String -> [(a, String, a)] -> ParserS (Map (a, String) [a])
     listOfTriplesToMap st sig l = do
-        when (any (\(x, y, z) -> x `Set.notMember` st || (y `Set.notMember` sig) || z `Set.notMember` st) l) $
+        when (any (\(x, y, z) -> x `Set.notMember` st || (y /= "\\epsilon" && y `Set.notMember` sig) || z `Set.notMember` st) l) $
           fail "Delta function is badly defined."
 
         let prod = productOfSets st sig
