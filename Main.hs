@@ -39,8 +39,8 @@ runTestEpsClojure :: IO ()
 runTestEpsClojure = do
     putStrLn "Test: epsilon clojure."
 
-    testEpsClojure "<<a, b, \\epsilon>, <1, 2>, <1>, <2>, <(1, \\epsilon, 1), (1, \\epsilon, 2), (1, \\epsilon, 1), (2, \\epsilon, 2), (2, \\epsilon, 1)>>" "<<a, b>, <1&2>, <1&2>, <1&2>, <>>"
-    testEpsClojure "<<a, b, \\epsilon>, <1, 2, 3, 4>, <1>, <4>, <(1, a, 2), (1, \\epsilon, 4), (4, b, 2), (2, \\epsilon, 3), (3, \\epsilon, 2), (2, b, 3), (3, a, 3)>>" "<<a, b>, <1&4, 2&3>, <1&4>, <1&4>, <(1&4, a, 2&3), (1&4, b, 2&3), (2&3, b, 2&3), (2&3, a, 2&3)>>"
+    testEpsClojure "<<a, b>, <1, 2>, <1>, <2>, <(1, \\epsilon, 1), (1, \\epsilon, 2), (1, \\epsilon, 1), (2, \\epsilon, 2), (2, \\epsilon, 1)>>" "<<a, b>, <1&2>, <1&2>, <1&2>, <>>"
+    testEpsClojure "<<a, b>, <1, 2, 3, 4>, <1>, <4>, <(1, a, 2), (1, \\epsilon, 4), (4, b, 2), (2, \\epsilon, 3), (3, \\epsilon, 2), (2, b, 3), (3, a, 3)>>" "<<a, b>, <1&4, 2&3>, <1&4>, <1&4>, <(1&4, a, 2&3), (1&4, b, 2&3), (2&3, b, 2&3), (2&3, a, 2&3)>>"
 
 testDeterminization :: String -> String -> IO ()
 testDeterminization s s' | Right a <- fmap determinize (parseAutomaton s), Right b <- parseAutomaton s', a == b = putStrLn $ "OK: " ++ s

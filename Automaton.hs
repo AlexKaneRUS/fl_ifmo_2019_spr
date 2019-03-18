@@ -1,6 +1,6 @@
 module Automaton where
 
-import qualified Data.Map.Lazy       as Map
+import qualified Data.Map.Strict     as Map
 import qualified Data.Set            as Set
 
 import           Combinators         hiding (find)
@@ -11,6 +11,8 @@ import           Data.Bifunctor      (bimap, first, second)
 import           Data.List           (find, groupBy, intercalate, nub, nubBy,
                                       sort, sortOn)
 import           Data.Maybe          (catMaybes, listToMaybe)
+
+import           Debug.Trace         (trace)
 
 type Set = Set.Set
 type Map = Map.Map
@@ -179,7 +181,7 @@ epsClojure auto = res
 
     dfs :: String -> [String] -> [String]
     dfs cur taken | cur `elem` taken = taken
-                  | otherwise        = foldl (flip dfs) (cur : taken) $ delt Map.! (cur, "\\epsilon")
+                  | otherwise        = foldl (flip dfs) (cur : taken) $ maybe [] id $ (cur, "\\epsilon") `Map.lookup` delt
 
 getTransitions :: Set String -> [[String]] -> Map (String, String) [String] -> Map (String, String) [String]
 getTransitions alphabet sts delt = Map.fromList $ do
