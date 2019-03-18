@@ -10,8 +10,6 @@ import           Data.Bifunctor      (first)
 import           Data.List           (groupBy, nubBy, sortOn)
 import           Data.Maybe          (listToMaybe)
 
-import           Debug.Trace         (trace)
-
 type Set = Set.Set
 type Map = Map.Map
 
@@ -99,7 +97,7 @@ automatonP = do
 
 
 -- Checks if the automaton is deterministic (only one transition for each state and each input symbol)
-isDFA :: Show b => Automaton String b -> Bool
+isDFA :: Automaton String b -> Bool
 isDFA auto = all ((<= 1) . length . snd) transList && all ((/= "\\epsilon") . snd . fst) transList
   where
     transList = Map.toList . delta $ auto
@@ -109,8 +107,8 @@ isNFA :: Automaton String b -> Bool
 isNFA = const True
 
 -- Checks if the automaton is complete (there exists a transition for each state and each input symbol)
-isComplete :: Automaton a b -> Bool
-isComplete = all ((== 1) . length . snd) . Map.toList . delta
+isComplete :: Automaton String b -> Bool
+isComplete auto = isDFA auto && (all ((== 1) . length . snd) . Map.toList . delta $ auto)
 
 -- Checks if the automaton is minimal (only for DFAs: the number of states is minimal)
 isMinimal :: Automaton String String -> Bool
