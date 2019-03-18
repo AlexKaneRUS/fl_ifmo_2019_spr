@@ -10,6 +10,8 @@ import           Data.Bifunctor      (first)
 import           Data.List           (groupBy, nubBy, sortOn)
 import           Data.Maybe          (listToMaybe)
 
+import           Debug.Trace         (trace)
+
 type Set = Set.Set
 type Map = Map.Map
 
@@ -80,9 +82,11 @@ automatonP = do
         when (any (\(x, y, z) -> x `Set.notMember` st || (y /= "\\epsilon" && y `Set.notMember` sig) || z `Set.notMember` st) l) $
           fail "Delta function is badly defined."
 
-        let prod = productOfSets st sig
-        let triM = triplesToMap l
-        pure $ Map.fromList $ fmap (\x -> maybe (x, []) ((,) x) $ x `Map.lookup` triM) prod
+        let prod   = productOfSets st $ Set.insert "\\epsilon" sig
+        let triM   = triplesToMap l
+        let potMap = fmap (\x -> maybe (x, []) ((,) x) $ x `Map.lookup` triM) prod
+
+        pure $ Map.fromList $ filter (\((a, b), c) -> not (b == "\\epsilon" && null c)) potMap
 
     triplesToMap :: (Ord a, Ord b) => [(a, b, a)] -> Map (a, b) [a]
     triplesToMap = Map.fromList . groupByKeys . fmap (\(x, y, z) -> ((x, y), z))
