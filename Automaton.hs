@@ -173,7 +173,7 @@ epsClojure auto = res
 
     newDelta      = getTransitions alphabet newStates delt
     newTermStates = foldl (\set x -> if any (`elem` terms) x then x `Set.insert` set else set) Set.empty newStates
-    newInitState  = maybe (Prelude.error "Now init state in epsClojure") unionString $ find (initState auto `elem`) newStates
+    newInitState  = maybe (Prelude.error "No init state in epsClojure") unionString $ find (initState auto `elem`) newStates
 
     res = Automaton alphabet (Set.fromList $ fmap unionString newStates) newInitState (Set.map unionString newTermStates) newDelta
 
@@ -221,13 +221,13 @@ minimize auto' = res
                     , reachableStates !! j /= "null"
                     ]
 
-    equalityGraph = Map.fromList $ fmap (second pure) equalStates
+    equalityGraph = Map.fromList $ ungroups . sortOn fst $ equalStates
     uniStates     = fmap (Set.fromList . flip (dfs equalityGraph) []) $ fmap fst equalStates
     newStates     = fmap Set.toList $ nub $ filter (\x -> all (not . (x `Set.isProperSubsetOf`)) uniStates) uniStates
 
     newDelta      = getTransitions (sigma auto) newStates (delta auto)
     newTermStates = foldl (\set x -> if any (`elem` termStates auto) x then x `Set.insert` set else set) Set.empty newStates
-    newInitState  = maybe (Prelude.error "Now init state in minimize") unionString $ find (initState auto `elem`) newStates
+    newInitState  = maybe (Prelude.error "No init state in minimize") unionString $ find (initState auto `elem`) newStates
 
     res = Automaton (sigma auto) (Set.fromList $ fmap unionString newStates) newInitState (Set.map unionString newTermStates) newDelta
 
