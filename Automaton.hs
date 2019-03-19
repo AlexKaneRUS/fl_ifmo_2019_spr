@@ -12,8 +12,6 @@ import           Data.List           (find, groupBy, intercalate, nub, nubBy,
                                       sort, sortOn)
 import           Data.Maybe          (catMaybes, listToMaybe)
 
-import           Debug.Trace         (trace)
-
 type Set = Set.Set
 type Map = Map.Map
 
@@ -194,9 +192,9 @@ getTransitions alphabet sts delt = Map.fromList $ do
     pure $ ((unionString st, a), fmap unionString newTrans)
 
 minimize :: Automaton String String -> Automaton String String
-minimize auto | not (isDFA auto) = Prelude.error "Automaton is not DFA."
-              | otherwise        = res
+minimize auto' = res
   where
+    auto          = determinize auto'
     completeDelta = delta $ complete auto
     revDelta''    = Map.fromList
                   $ ungroups . sortOn fst
