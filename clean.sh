@@ -1,1 +1,1 @@
-rm Main *.hi *.o
+rm -f Main *.hi *.o
