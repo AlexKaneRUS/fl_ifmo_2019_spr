@@ -214,3 +214,20 @@ parseList elementP delimP lbrP rbrP minimumNumberElems | minimumNumberElems < 0 
     if length (resHead : resTail) >= minimumNumberElems
       then pure (resHead : resTail)
       else fail "Invalid length."
+
+data Assoc = LAssoc -- left associativity
+           | RAssoc -- right associativity
+           | NAssoc -- not associative
+
+-- General parser combinator for expressions
+-- Binary operators are listed in the order of precedence (from lower to higher)
+-- Binary operators on the same level of precedence have the same associativity
+-- Binary operator is specified with a parser for the operator itself and a semantic function to apply to the operands
+expression :: [(Assoc, [(Parser str b err, a -> a -> a)])] ->
+              Parser str a err ->
+              Parser str a err
+expression ops primary = undefined
+
+runParserUntilEof :: Foldable t => Parser (t str) ok String -> (t str) -> Either String ok
+runParserUntilEof p inp =
+  either (Left . id) (\(rest, ok) -> if null rest then Right ok else Left "Expected eof") (runParser p inp)
