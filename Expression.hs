@@ -28,6 +28,7 @@ data EAst a = BinOp Operator (EAst a) (EAst a)
             | Primary a
 
 -- Change the signature if necessary
+-- Constructs AST for the input expression
 parseExpression :: String -> Either String (EAst Integer)
 parseExpression = first show . parse (parserE <* eof)
 
