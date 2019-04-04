@@ -3,6 +3,7 @@ module Main where
 import           Automaton
 import           Combinators
 import           Control.Applicative (many, some, (<|>))
+import           Expression
 import           System.Environment
 import           Text.Printf
 import           Tokenizer
@@ -20,6 +21,8 @@ main = do
   runTestDeterminization
   runTestEpsClojure
 
+  runTestExpressions
+
   fileNames <- getArgs
   mapM_
     (\fileName -> do
@@ -30,6 +33,46 @@ main = do
         putStrLn ""
     )
     fileNames
+
+testExpression :: String -> String -> IO ()
+testExpression s s' = if fmap show (parseExpression s) == Right s' then putStrLn $ "OK: " ++ s
+                     else putStrLn $ "FAIL: " ++ s
+
+runTestExpressions :: IO ()
+runTestExpressions = do
+    putStrLn "Test: expressions."
+
+    let expressionsTrivial =  "+" ++ "\n" ++
+                              "|_-" ++ "\n" ++
+                              "| |_+" ++ "\n" ++
+                              "| | |_+" ++ "\n" ++
+                              "| | | |_2" ++ "\n" ++
+                              "| | | |_3" ++ "\n" ++
+                              "| | |_+" ++ "\n" ++
+                              "| | | |_4" ++ "\n" ++
+                              "| | | |_10" ++ "\n" ++
+                              "| |_12" ++ "\n" ++
+                              "|_+" ++ "\n" ++
+                              "| |_1" ++ "\n" ++
+                              "| |_2"
+    testExpression "2 + 3 + (4 + 10) - 12 + (1 + (2))" expressionsTrivial
+
+    let expressionsHard = "==" ++ "\n" ++
+                          "|_+" ++ "\n" ++
+                          "| |_1" ++ "\n" ++
+                          "| |_^" ++ "\n" ++
+                          "| | |_2" ++ "\n" ++
+                          "| | |_7" ++ "\n" ++
+                          "|_-" ++ "\n" ++
+                          "| |_3" ++ "\n" ++
+                          "| |_+" ++ "\n" ++
+                          "| | |_*" ++ "\n" ++
+                          "| | | |_/" ++ "\n" ++
+                          "| | | | |_11" ++ "\n" ++
+                          "| | | | |_10" ++ "\n" ++
+                          "| | | |_8" ++ "\n" ++
+                          "| | |_1"
+    testExpression "1 + 2 ^ 7 == 3 - (11 / 10 * 8 + 1)" expressionsHard
 
 testEpsClojure :: String -> String -> IO ()
 testEpsClojure s s' | Right a <- fmap epsClojure (parseAutomaton s), Right b <- parseAutomaton s', a == b = putStrLn $ "OK: " ++ s

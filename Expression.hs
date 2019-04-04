@@ -1,5 +1,10 @@
 module Expression where
 
+import           Combinators
+import           Control.Applicative (many, some, (<|>))
+import           Control.Monad       (when)
+import           Data.Bifunctor      (first)
+import           Data.Char           (isDigit)
 import           Text.Printf
 
 data Operator = Pow
@@ -22,7 +27,76 @@ data EAst a = BinOp Operator (EAst a) (EAst a)
 
 -- Change the signature if necessary
 parseExpression :: String -> Either String (EAst Integer)
-parseExpression input = undefined
+parseExpression = first show . parse parserE
+
+-- E $\to$ A||E | A
+parserE :: ParserS (EAst Integer)
+parserE =  BinOp Disj <$> parserA <* spaces1 <* string "||" <* spaces1 <*> parserE
+       <|> parserA
+
+-- A $\to$ B\&\&A | B
+parserA :: ParserS (EAst Integer)
+parserA =  BinOp Conj <$> parserB <* spaces1 <* string "&&" <* spaces1 <*> parserA
+       <|> parserB
+
+betweenSpaces :: ParserS a -> ParserS a
+betweenSpaces = between (many space) (many space)
+
+betweenBrackets :: ParserS a -> ParserS a
+betweenBrackets = between (pure <$> char '(' <* many space) (pure <$> char ')' <* many space)
+
+-- B $\to$ CNC | (E)NC | CN(E) | (E)N(E) | C
+parserB :: ParserS (EAst Integer)
+parserB =  flip BinOp <$> parserC <*> betweenSpaces parserN <*> parserC
+       <|> flip BinOp <$> betweenBrackets parserE <*> betweenSpaces parserN <*> parserC
+       <|> flip BinOp <$> parserC <*> betweenSpaces parserN <*> betweenBrackets parserE
+       <|> flip BinOp <$> betweenBrackets parserE <*> betweenSpaces parserN <*> betweenBrackets parserE
+       <|> parserC
+
+-- N $\to$ == | /= | $\le$ | < | $\ge$ | >
+parserN :: ParserS Operator
+parserN =  string "==" *> pure Eq
+       <|> string "/=" *> pure Neq
+       <|> string "<=" *> pure Le
+       <|> string "<"  *> pure Lt
+       <|> string ">=" *> pure Ge
+       <|> string ">"  *> pure Gt
+
+-- C $\to$ CPD | D
+parserC :: ParserS (EAst Integer)
+parserC = foldl (flip ($)) <$> parserD <*> many (fmap flip (BinOp <$> betweenSpaces parserP) <*> parserD)
+
+-- P $\to$ + | -
+parserP :: ParserS Operator
+parserP =  string "+" *> pure Sum
+       <|> string "-" *> pure Minus
+
+-- D $\to$ DMF | F
+parserD :: ParserS (EAst Integer)
+parserD = foldl (flip ($)) <$> parserF <*> many (fmap flip (BinOp <$> betweenSpaces parserM) <*> parserF)
+
+-- M $\to$ * | /
+parserM :: ParserS Operator
+parserM =  string "*" *> pure Mul
+       <|> string "/" *> pure Div
+
+-- F $\to$ $T^{\land}F$ | $(E)^{\land}F$ | (E) | T
+parserF :: ParserS (EAst Integer)
+parserF =  flip BinOp <$> parserT <*> parserOp <*> parserF
+       <|> flip BinOp <$> betweenBrackets parserE <*> parserOp <*> parserF
+       <|> betweenBrackets parserE
+       <|> parserT
+  where
+    parserOp :: ParserS Operator
+    parserOp = betweenSpaces $ string "^" *> pure Pow
+
+parserT :: ParserS (EAst Integer)
+parserT = do
+    firstChar <- satisfy isDigit
+
+    case firstChar of
+      '0' -> some (char '0') >> pure (Primary 0)
+      x   -> Primary . read <$> ((x :) <$> many (satisfy isDigit))
 
 instance Show Operator where
   show Pow   = "^"

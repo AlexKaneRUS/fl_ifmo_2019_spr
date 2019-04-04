@@ -163,6 +163,16 @@ digit = satisfy isDigit
 int :: Parser e Char Int
 int = read <$> some digit
 
+string :: String -> Parser e Char String
+string []       = pure []
+string (x : xs) = (:) <$> satisfy (== x) <*> string xs
+
+spaces1 :: Parser e Char String
+spaces1 = some space
+
+between :: Parser e token [token] -> Parser e token [token] -> Parser e token a -> Parser e token a
+between l r p = l *> p <* r
+
 eof :: Parser e a ()
 eof = Parser $ \str -> if null str then pure ([], ()) else Left $ [ParserError (coordsFromTokens str) "Can't parse EOF."]
 
