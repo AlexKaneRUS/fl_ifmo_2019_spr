@@ -4,6 +4,7 @@ module Combinators where
 
 import           Control.Applicative (Alternative (..))
 import           Control.Monad       (join)
+import           Data.Bifunctor      (first)
 import           Data.Char           (isAlpha, isDigit, isSpace, isSymbol)
 import           Data.List           (elemIndex, lookup)
 import           Data.List           (union)
@@ -219,15 +220,43 @@ data Assoc = LAssoc -- left associativity
            | RAssoc -- right associativity
            | NAssoc -- not associative
 
+type OpsList err str b a = [(Assoc, [(Parser err str b, a -> a -> a)])]
+
 -- General parser combinator for expressions
 -- Binary operators are listed in the order of precedence (from lower to higher)
 -- Binary operators on the same level of precedence have the same associativity
 -- Binary operator is specified with a parser for the operator itself and a semantic function to apply to the operands
-expression :: [(Assoc, [(Parser str b err, a -> a -> a)])] ->
-              Parser str a err ->
-              Parser str a err
-expression ops primary = undefined
+expression :: forall err str a b. OpsList err str b a
+           -> Parser err str a
+           -> (Parser err str a -> Parser err str a)
+           -> Parser err str a
+expression ops primary priorityWrapper = expressionP ops
+  where
+    expressionP :: OpsList err str b a -> Parser err str a
+    expressionP []       = primary <|> priorityWrapper (expressionP ops)
+    expressionP (x : xs) = levelP x
+      where
+        levelP :: (Assoc, [(Parser err str b, a -> a -> a)]) -> Parser err str a
+        levelP (NAssoc, l) = foldl1 (<|>) $ fmap nopP l
+        levelP (LAssoc, l) = lopP l
+        levelP (RAssoc, l) = foldl1 (<|>) $ fmap ropP l
 
-runParserUntilEof :: Foldable t => Parser (t str) ok String -> (t str) -> Either String ok
-runParserUntilEof p inp =
-  either (Left . id) (\(rest, ok) -> if null rest then Right ok else Left "Expected eof") (runParser p inp)
+        nopP :: (Parser err str b, a -> a -> a) -> Parser err str a
+        nopP (p, f) =  f <$> expressionP xs                    <* p <*> expressionP xs
+                   <|> f <$> priorityWrapper (expressionP ops) <* p <*> expressionP xs
+                   <|> f <$> expressionP xs                    <* p <*> priorityWrapper (expressionP ops)
+                   <|> f <$> priorityWrapper (expressionP ops) <* p <*> priorityWrapper (expressionP ops)
+                   <|> expressionP xs
+
+        lopP :: [(Parser err str b, a -> a -> a)] -> Parser err str a
+        lopP l = foldl (flip ($)) <$> (expressionP xs) <*> many (foldl1 (<|>) (fmap parsify l) <*> expressionP xs)
+          where
+            parsify :: (Parser err str b, a -> a -> a) -> Parser err str (a -> a -> a)
+            parsify (p, f) = flip f <$ p
+
+        ropP :: (Parser err str b, a -> a -> a) -> Parser err str a
+        ropP (p, f) =  f <$> expressionP xs <* p <*> expressionP (x : xs)
+                   <|> expressionP xs
+
+runParserUntilEof :: ParserS ok -> String -> Either String ok
+runParserUntilEof p = first show . parse (p <* eof)

@@ -27,25 +27,46 @@ data Operator = Pow
 data EAst a = BinOp Operator (EAst a) (EAst a)
             | Primary a
 
+fromPrimary :: EAst a -> a
+fromPrimary (Primary a) = a
+fromPrimary _           = Prelude.error "Not primary."
+
 -- Change the signature if necessary
 -- Constructs AST for the input expression
-parseExpression :: String -> Either String (EAst Integer)
-parseExpression = first show . parse (parserE <* eof)
+parseExpression :: String -> Either String (EAst Int)
+parseExpression = first show . parse (expression exprOpsListAST primaryP (betweenBrackets1 . betweenBrackets))
 
--- E $\to$ A||E | A
-parserE :: ParserS (EAst Integer)
-parserE = do
-    a <- parserA
-    (BinOp Disj a <$ betweenSpaces (string "||") <*> parserE) <|> pure a
-
--- A $\to$ B\&\&A | B
-parserA :: ParserS (EAst Integer)
-parserA = do
-    b <- parserB
-    (BinOp Conj b <$ betweenSpaces (string "&&") <*> parserA) <|> pure b
+exprOpsListAST :: OpsList String Char String (EAst Int)
+exprOpsListAST = [ (RAssoc, [ (betweenSpaces $ string "||", BinOp Disj)
+                            , (betweenSpaces $ string "&&", BinOp Conj)
+                            ]
+                   )
+                 , (NAssoc, [ (betweenSpaces $ string "==", BinOp Eq)
+                            , (betweenSpaces $ string "/=", BinOp Neq)
+                            , (betweenSpaces $ string "<=", BinOp Le)
+                            , (betweenSpaces $ string  "<", BinOp Lt)
+                            , (betweenSpaces $ string ">=", BinOp Ge)
+                            , (betweenSpaces $ string  ">", BinOp Gt)
+                            ]
+                   )
+                 , (LAssoc, [ (betweenSpaces $ string "+", BinOp Sum)
+                            , (betweenSpaces $ string "-", BinOp Minus)
+                            ]
+                   )
+                 , (LAssoc, [ (betweenSpaces $ string "*", BinOp Mul)
+                            , (betweenSpaces $ string "/", BinOp Div)
+                            ]
+                   )
+                 , (RAssoc, [ (betweenSpaces $ string "^", BinOp Pow)
+                            ]
+                   )
+                 ]
 
 betweenSpaces :: ParserS a -> ParserS a
 betweenSpaces = between (many space) (many space)
+
+betweenSpaces1 :: ParserS a -> ParserS a
+betweenSpaces1 = between (some space) (some space)
 
 betweenBrackets :: ParserS a -> ParserS a
 betweenBrackets p = do
@@ -59,53 +80,13 @@ betweenBrackets p = do
 betweenBrackets1 :: ParserS a -> ParserS a
 betweenBrackets1 p = betweenSpaces (char '(') *> p <* betweenSpaces (char ')')
 
--- B $\to$ CNC | (E)NC | CN(E) | (E)N(E) | C
-parserB :: ParserS (EAst Integer)
-parserB =  flip BinOp <$> parserC <*> betweenSpaces parserN <*> (parserC <|> betweenBrackets1 parserE)
-       <|> flip BinOp <$> betweenBrackets1 parserE <*> betweenSpaces parserN <*> (parserC <|> betweenBrackets1 parserE)
-       <|> parserC
+primaryP :: ParserS (EAst Int)
+primaryP = do
+    firstChar <- satisfy isDigit
 
--- N $\to$ == | /= | $\le$ | < | $\ge$ | >
-parserN :: ParserS Operator
-parserN =  string "==" *> pure Eq
-       <|> string "/=" *> pure Neq
-       <|> string "<=" *> pure Le
-       <|> string "<"  *> pure Lt
-       <|> string ">=" *> pure Ge
-       <|> string ">"  *> pure Gt
-
--- C $\to$ CPD | D
-parserC :: ParserS (EAst Integer)
-parserC = foldl (flip ($)) <$> parserD <*> many (fmap flip (BinOp <$> betweenSpaces parserP) <*> parserD)
-
--- P $\to$ + | -
-parserP :: ParserS Operator
-parserP =  string "+" *> pure Sum
-       <|> string "-" *> pure Minus
-
--- D $\to$ DMF | F
-parserD :: ParserS (EAst Integer)
-parserD = foldl (flip ($)) <$> parserF <*> many (fmap flip (BinOp <$> betweenSpaces parserM) <*> parserF)
-
--- M $\to$ * | /
-parserM :: ParserS Operator
-parserM =  string "*" *> pure Mul
-       <|> string "/" *> pure Div
-
--- F $\to$ $T^{\land}F$ | $(E)^{\land}F$ | (E) | T
-parserF :: ParserS (EAst Integer)
-parserF =  do
-             tk <- parserT
-             flip BinOp tk <$> parserOp <*> parserF <|> pure tk
-       <|> do
-             ex <- betweenBrackets1 (betweenBrackets parserE)
-             flip BinOp ex <$> parserOp <*> parserF <|> pure ex
-  where
-    parserOp :: ParserS Operator
-    parserOp = betweenSpaces $ string "^" *> pure Pow
-
-parserT :: ParserS (EAst Integer)
-parserT = fmap (Primary . fromIntegral) int
+    case firstChar of
+      '0' -> some (char '0') >> pure (Primary 0)
+      x   -> Primary . read <$> ((x :) <$> many (satisfy isDigit))
 
 instance Show Operator where
   show Pow   = "^"
@@ -143,3 +124,35 @@ show (BinOp Conj (BinOp Pow (Primary 1) (BinOp Sum (Primary 2) (Primary 3))) (Pr
 | | |_3
 |_4
 -}
+
+-- Change the signature if necessary
+-- Calculates the value of the input expression
+executeExpression :: String -> Either String Int
+executeExpression input =
+  runParserUntilEof (expression exprOpsListCalc (fromPrimary <$> primaryP) (betweenBrackets1 . betweenBrackets)) input
+
+exprOpsListCalc :: OpsList String Char String Int
+exprOpsListCalc = [ (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $ x >= 0 || y >= 0))
+                             , (betweenSpaces $ string "&&", (\x y -> fromEnum $ x >= 0 && y >= 0))
+                             ]
+                   )
+                 , (NAssoc, [ (betweenSpaces $ string "==", (fromEnum <$>) <$> (==))
+                            , (betweenSpaces $ string "/=", (fromEnum <$>) <$> (/=))
+                            , (betweenSpaces $ string "<=", (fromEnum <$>) <$> (<=))
+                            , (betweenSpaces $ string  "<", (fromEnum <$>) <$> (<))
+                            , (betweenSpaces $ string ">=", (fromEnum <$>) <$> (>=))
+                            , (betweenSpaces $ string  ">", (fromEnum <$>) <$> (>))
+                            ]
+                   )
+                 , (LAssoc, [ (betweenSpaces $ string "+", (+))
+                            , (betweenSpaces $ string "-", (-))
+                            ]
+                   )
+                 , (LAssoc, [ (betweenSpaces $ string "*", (*))
+                            , (betweenSpaces $ string "/", (\x y -> round $ fromIntegral x / fromIntegral y))
+                            ]
+                   )
+                 , (RAssoc, [ (betweenSpaces $ string "^", (^))
+                            ]
+                   )
+                 ]

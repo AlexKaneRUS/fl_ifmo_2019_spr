@@ -40,6 +40,10 @@ testExpression :: String -> String -> IO ()
 testExpression s s' = if fmap show (parseExpression s) == Right s' then putStrLn $ "OK: " ++ s
                      else putStrLn $ "FAIL: " ++ s
 
+testExecuteExpression :: String -> Int -> IO ()
+testExecuteExpression s s' = if executeExpression s == Right s' then putStrLn $ "OK: " ++ s
+                             else putStrLn $ "FAIL: " ++ s
+
 runTestExpressions :: IO ()
 runTestExpressions = do
     putStrLn "Test: expressions."
@@ -57,7 +61,9 @@ runTestExpressions = do
                               "|_+" ++ "\n" ++
                               "| |_1" ++ "\n" ++
                               "| |_2"
+
     testExpression "2 + 3 + (4 + 10) - 12 + (1 + (2))" expressionsTrivial
+    testExecuteExpression "2 + 3 + (4 + 10) - 12 + (1 + (2))" 10
 
     let expressionsHard = "==" ++ "\n" ++
                           "|_+" ++ "\n" ++
@@ -74,7 +80,9 @@ runTestExpressions = do
                           "| | | | |_10" ++ "\n" ++
                           "| | | |_8" ++ "\n" ++
                           "| | |_1"
+
     testExpression "1 + 2 ^ 7 == 3 - (11 / 10 * 8 + 1)" expressionsHard
+    testExecuteExpression "1 + 2 ^ 7 - 135 == 3 - (11 / 10 * 8 + 1)" 1
 
     let expressionLong = "||" ++ "\n" ++
                          "|_+" ++ "\n" ++
