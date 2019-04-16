@@ -7,6 +7,8 @@ import           Data.Bifunctor      (first)
 import           Data.Char           (isDigit)
 import           Text.Printf
 
+import           Debug.Trace         (trace)
+
 data Operator = Pow
               | Mul
               | Div
@@ -27,30 +29,39 @@ data EAst a = BinOp Operator (EAst a) (EAst a)
 
 -- Change the signature if necessary
 parseExpression :: String -> Either String (EAst Integer)
-parseExpression = first show . parse parserE
+parseExpression = first show . parse (parserE <* eof)
 
 -- E $\to$ A||E | A
 parserE :: ParserS (EAst Integer)
-parserE =  BinOp Disj <$> parserA <* spaces1 <* string "||" <* spaces1 <*> parserE
-       <|> parserA
+parserE = do
+    a <- parserA
+    (BinOp Disj a <$ betweenSpaces (string "||") <*> parserE) <|> pure a
 
 -- A $\to$ B\&\&A | B
 parserA :: ParserS (EAst Integer)
-parserA =  BinOp Conj <$> parserB <* spaces1 <* string "&&" <* spaces1 <*> parserA
-       <|> parserB
+parserA = do
+    b <- parserB
+    (BinOp Conj b <$ betweenSpaces (string "&&") <*> parserA) <|> pure b
 
 betweenSpaces :: ParserS a -> ParserS a
 betweenSpaces = between (many space) (many space)
 
 betweenBrackets :: ParserS a -> ParserS a
-betweenBrackets = between (pure <$> char '(' <* many space) (pure <$> char ')' <* many space)
+betweenBrackets p = do
+    _        <- many space
+    bracketM <- peek
+
+    case bracketM of
+      Just '(' -> char '(' *> betweenBrackets p <* many space <* char ')'
+      _        -> p
+
+betweenBrackets1 :: ParserS a -> ParserS a
+betweenBrackets1 p = betweenSpaces (char '(') *> p <* betweenSpaces (char ')')
 
 -- B $\to$ CNC | (E)NC | CN(E) | (E)N(E) | C
 parserB :: ParserS (EAst Integer)
-parserB =  flip BinOp <$> parserC <*> betweenSpaces parserN <*> parserC
-       <|> flip BinOp <$> betweenBrackets parserE <*> betweenSpaces parserN <*> parserC
-       <|> flip BinOp <$> parserC <*> betweenSpaces parserN <*> betweenBrackets parserE
-       <|> flip BinOp <$> betweenBrackets parserE <*> betweenSpaces parserN <*> betweenBrackets parserE
+parserB =  flip BinOp <$> parserC <*> betweenSpaces parserN <*> (parserC <|> betweenBrackets1 parserE)
+       <|> flip BinOp <$> betweenBrackets1 parserE <*> betweenSpaces parserN <*> (parserC <|> betweenBrackets1 parserE)
        <|> parserC
 
 -- N $\to$ == | /= | $\le$ | < | $\ge$ | >
@@ -82,10 +93,12 @@ parserM =  string "*" *> pure Mul
 
 -- F $\to$ $T^{\land}F$ | $(E)^{\land}F$ | (E) | T
 parserF :: ParserS (EAst Integer)
-parserF =  flip BinOp <$> parserT <*> parserOp <*> parserF
-       <|> flip BinOp <$> betweenBrackets parserE <*> parserOp <*> parserF
-       <|> betweenBrackets parserE
-       <|> parserT
+parserF =  do
+             tk <- parserT
+             flip BinOp tk <$> parserOp <*> parserF <|> pure tk
+       <|> do
+             ex <- betweenBrackets1 (betweenBrackets parserE)
+             flip BinOp ex <$> parserOp <*> parserF <|> pure ex
   where
     parserOp :: ParserS Operator
     parserOp = betweenSpaces $ string "^" *> pure Pow

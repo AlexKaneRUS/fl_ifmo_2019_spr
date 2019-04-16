@@ -6,6 +6,7 @@ import           Control.Applicative (Alternative (..))
 import           Control.Monad       (join)
 import           Data.Char           (isAlpha, isDigit, isSpace, isSymbol)
 import           Data.List           (elemIndex, lookup)
+import           Data.List           (union)
 import           Data.Maybe          (listToMaybe)
 import           Data.Tuple          (swap)
 
@@ -78,7 +79,7 @@ instance Alternative (Parser e str) where
     case runParser p s of
       Left e ->
         case runParser q s of
-          Left e' -> Left $ e ++ e'
+          Left e' -> Left $ e `union` e'
           x       -> x
       x      -> x
 
@@ -178,6 +179,9 @@ eof = Parser $ \str -> if null str then pure ([], ()) else Left $ [ParserError (
 
 getInput :: Parser e a (Tokens a)
 getInput = Parser $ \str -> pure (str, str)
+
+peek :: Parser e a (Maybe a)
+peek = Parser $ \str ->pure (str, symbol <$> listToMaybe str)
 
 setInput :: Tokens a -> Parser e a ()
 setInput str = Parser $ \_ -> pure (str, ())
