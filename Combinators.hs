@@ -11,6 +11,8 @@ import           Data.List           (union)
 import           Data.Maybe          (listToMaybe)
 import           Data.Tuple          (swap)
 
+import           Debug.Trace         (trace)
+
 data Trie = Trie Bool [(Char, Trie)] deriving (Eq, Show)
 
 find :: Trie -> String -> Bool
@@ -237,26 +239,26 @@ expression ops primary priorityWrapper = expressionP ops
     expressionP (x : xs) = levelP x
       where
         levelP :: (Assoc, [(Parser err str b, a -> a -> a)]) -> Parser err str a
-        levelP (NAssoc, l) = foldl1 (<|>) $ fmap nopP l
+        levelP (NAssoc, l) = nopP l
         levelP (LAssoc, l) = lopP l
-        levelP (RAssoc, l) = foldl1 (<|>) $ fmap ropP l
+        levelP (RAssoc, l) = ropP l
 
-        nopP :: (Parser err str b, a -> a -> a) -> Parser err str a
-        nopP (p, f) =  f <$> expressionP xs                    <* p <*> expressionP xs
-                   <|> f <$> priorityWrapper (expressionP ops) <* p <*> expressionP xs
-                   <|> f <$> expressionP xs                    <* p <*> priorityWrapper (expressionP ops)
-                   <|> f <$> priorityWrapper (expressionP ops) <* p <*> priorityWrapper (expressionP ops)
-                   <|> expressionP xs
+        nopP :: [(Parser err str b, a -> a -> a)] -> Parser err str a
+        nopP l = do
+            ex <- expressionP xs
+            (foldl1 (<|>) (fmap parsify l) <*> pure ex <*> expressionP xs) <|> pure ex
 
         lopP :: [(Parser err str b, a -> a -> a)] -> Parser err str a
-        lopP l = foldl (flip ($)) <$> (expressionP xs) <*> many (foldl1 (<|>) (fmap parsify l) <*> expressionP xs)
-          where
-            parsify :: (Parser err str b, a -> a -> a) -> Parser err str (a -> a -> a)
-            parsify (p, f) = flip f <$ p
+        lopP l =
+          foldl (flip ($)) <$> (expressionP xs) <*> many (flip <$> foldl1 (<|>) (fmap parsify l) <*> expressionP xs)
 
-        ropP :: (Parser err str b, a -> a -> a) -> Parser err str a
-        ropP (p, f) =  f <$> expressionP xs <* p <*> expressionP (x : xs)
-                   <|> expressionP xs
+        ropP :: [(Parser err str b, a -> a -> a)] -> Parser err str a
+        ropP l = do
+            ex <- expressionP xs
+            (foldl1 (<|>) (fmap parsify l) <*> pure ex <*> expressionP (x : xs)) <|> pure ex
+
+        parsify :: (Parser err str b, a -> a -> a) -> Parser err str (a -> a -> a)
+        parsify (p, f) = f <$ p
 
 runParserUntilEof :: ParserS ok -> String -> Either String ok
 runParserUntilEof p = first show . parse (p <* eof)

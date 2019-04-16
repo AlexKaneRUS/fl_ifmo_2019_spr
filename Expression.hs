@@ -34,30 +34,30 @@ fromPrimary _           = Prelude.error "Not primary."
 -- Change the signature if necessary
 -- Constructs AST for the input expression
 parseExpression :: String -> Either String (EAst Int)
-parseExpression = first show . parse (expression exprOpsListAST primaryP betweenBrackets)
+parseExpression = first show . parse (expression exprOpsListAST primaryP (betweenBrackets1 . betweenBrackets))
 
 exprOpsListAST :: OpsList String Char String (EAst Int)
-exprOpsListAST = [ (RAssoc, [ (betweenSpaces1 $ string "||", BinOp Disj)
-                            , (betweenSpaces1 $ string "&&", BinOp Conj)
+exprOpsListAST = [ (RAssoc, [ (betweenSpaces $ string "||", BinOp Disj)
+                            , (betweenSpaces $ string "&&", BinOp Conj)
                             ]
                    )
-                 , (NAssoc, [ (betweenSpaces1 $ string "==", BinOp Eq)
-                            , (betweenSpaces1 $ string "/=", BinOp Neq)
-                            , (betweenSpaces1 $ string "<=", BinOp Le)
-                            , (betweenSpaces1 $ string  "<", BinOp Lt)
-                            , (betweenSpaces1 $ string ">=", BinOp Ge)
-                            , (betweenSpaces1 $ string  ">", BinOp Gt)
+                 , (NAssoc, [ (betweenSpaces $ string "==", BinOp Eq)
+                            , (betweenSpaces $ string "/=", BinOp Neq)
+                            , (betweenSpaces $ string "<=", BinOp Le)
+                            , (betweenSpaces $ string  "<", BinOp Lt)
+                            , (betweenSpaces $ string ">=", BinOp Ge)
+                            , (betweenSpaces $ string  ">", BinOp Gt)
                             ]
                    )
-                 , (LAssoc, [ (betweenSpaces1 $ string "+", BinOp Sum)
-                            , (betweenSpaces1 $ string "-", BinOp Minus)
+                 , (LAssoc, [ (betweenSpaces $ string "+", BinOp Sum)
+                            , (betweenSpaces $ string "-", BinOp Minus)
                             ]
                    )
-                 , (LAssoc, [ (betweenSpaces1 $ string "*", BinOp Mul)
-                            , (betweenSpaces1 $ string "/", BinOp Div)
+                 , (LAssoc, [ (betweenSpaces $ string "*", BinOp Mul)
+                            , (betweenSpaces $ string "/", BinOp Div)
                             ]
                    )
-                 , (RAssoc, [ (betweenSpaces1 $ string "^", BinOp Pow)
+                 , (RAssoc, [ (betweenSpaces $ string "^", BinOp Pow)
                             ]
                    )
                  ]
@@ -129,30 +129,30 @@ show (BinOp Conj (BinOp Pow (Primary 1) (BinOp Sum (Primary 2) (Primary 3))) (Pr
 -- Calculates the value of the input expression
 executeExpression :: String -> Either String Int
 executeExpression input =
-  runParserUntilEof (expression exprOpsListCalc (fromPrimary <$> primaryP) (betweenBrackets . betweenBrackets1)) input
+  runParserUntilEof (expression exprOpsListCalc (fromPrimary <$> primaryP) (betweenBrackets1 . betweenBrackets)) input
 
 exprOpsListCalc :: OpsList String Char String Int
-exprOpsListCalc = [ (RAssoc, [ (betweenSpaces1 $ string "||", (\x y -> fromEnum $ x >= 0 || y >= 0))
-                             , (betweenSpaces1 $ string "&&", (\x y -> fromEnum $ x >= 0 && y >= 0))
+exprOpsListCalc = [ (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $ x >= 0 || y >= 0))
+                             , (betweenSpaces $ string "&&", (\x y -> fromEnum $ x >= 0 && y >= 0))
                              ]
                    )
-                 , (NAssoc, [ (betweenSpaces1 $ string "==", (fromEnum <$>) <$> (==))
-                            , (betweenSpaces1 $ string "/=", (fromEnum <$>) <$> (/=))
-                            , (betweenSpaces1 $ string "<=", (fromEnum <$>) <$> (<=))
-                            , (betweenSpaces1 $ string  "<", (fromEnum <$>) <$> (<))
-                            , (betweenSpaces1 $ string ">=", (fromEnum <$>) <$> (>=))
-                            , (betweenSpaces1 $ string  ">", (fromEnum <$>) <$> (>))
+                 , (NAssoc, [ (betweenSpaces $ string "==", (fromEnum <$>) <$> (==))
+                            , (betweenSpaces $ string "/=", (fromEnum <$>) <$> (/=))
+                            , (betweenSpaces $ string "<=", (fromEnum <$>) <$> (<=))
+                            , (betweenSpaces $ string  "<", (fromEnum <$>) <$> (<))
+                            , (betweenSpaces $ string ">=", (fromEnum <$>) <$> (>=))
+                            , (betweenSpaces $ string  ">", (fromEnum <$>) <$> (>))
                             ]
                    )
-                 , (LAssoc, [ (betweenSpaces1 $ string "+", (+))
-                            , (betweenSpaces1 $ string "-", (-))
+                 , (LAssoc, [ (betweenSpaces $ string "+", (+))
+                            , (betweenSpaces $ string "-", (-))
                             ]
                    )
-                 , (LAssoc, [ (betweenSpaces1 $ string "*", (*))
-                            , (betweenSpaces1 $ string "/", (\x y -> round $ fromIntegral x / fromIntegral y))
+                 , (LAssoc, [ (betweenSpaces $ string "*", (*))
+                            , (betweenSpaces $ string "/", (\x y -> round $ fromIntegral x / fromIntegral y))
                             ]
                    )
-                 , (RAssoc, [ (betweenSpaces1 $ string "^", (^))
+                 , (RAssoc, [ (betweenSpaces $ string "^", (^))
                             ]
                    )
                  ]
