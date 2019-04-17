@@ -174,8 +174,12 @@ spaces1 = some space
 between :: Parser e token [token] -> Parser e token [token] -> Parser e token a -> Parser e token a
 between l r p = l *> p <* r
 
-eof :: Parser e a ()
-eof = Parser $ \str -> if null str then pure ([], ()) else Left $ [ParserError (coordsFromTokens str) "Can't parse EOF."]
+eof :: Parser e Char ()
+eof = Parser $ \str ->
+  case str of
+    []  -> pure ([], ())
+    [x] | isSpace (symbol x) -> pure ([], ())
+    _   -> Left $ [ParserError (coordsFromTokens str) "Can't parse EOF."]
 
 getInput :: Parser e a (Tokens a)
 getInput = Parser $ \str -> pure (str, str)
