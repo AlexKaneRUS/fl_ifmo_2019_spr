@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Combinators where
@@ -222,43 +223,68 @@ data Assoc = LAssoc -- left associativity
            | RAssoc -- right associativity
            | NAssoc -- not associative
 
-type OpsList err str b a = [(Assoc, [(Parser err str b, a -> a -> a)])]
+type OpsList err str b a = [Ops err str b a]
+
+data Ops err str b a = Ops { binM :: Maybe (BinOpsList err str b a)
+                           , un   :: UnOpsList err str b a
+                           }
+
+type BinOpsList err str b a = (Assoc, [(Parser err str b, a -> a -> a)])
+type UnOpsList err str b a  = [(Parser err str b, a -> a)]
+
+unoToOps :: UnOpsList err str b a -> Ops err str b a
+unoToOps = Ops Nothing
+
+binToOps :: BinOpsList err str b a -> Ops err str b a
+binToOps = flip Ops [] . Just
 
 -- General parser combinator for expressions
 -- Binary operators are listed in the order of precedence (from lower to higher)
 -- Binary operators on the same level of precedence have the same associativity
 -- Binary operator is specified with a parser for the operator itself and a semantic function to apply to the operands
-expression :: forall err str a b. OpsList err str b a
+expression :: forall err str a b.
+              OpsList err str b a
            -> Parser err str a
            -> (Parser err str a -> Parser err str a)
            -> Parser err str a
 expression ops primary priorityWrapper = expressionP ops
   where
     expressionP :: OpsList err str b a -> Parser err str a
-    expressionP []       = primary <|> priorityWrapper (expressionP ops)
-    expressionP (x : xs) = levelP x
+    expressionP []                 = primary <|> priorityWrapper (expressionP ops)
+    expressionP (x@(Ops{..}) : xs) =
+      case binM of
+        Just bin -> levelP2 bin <|> levelP1 un
+        _        -> levelP1 un
+
       where
-        levelP :: (Assoc, [(Parser err str b, a -> a -> a)]) -> Parser err str a
-        levelP (NAssoc, l) = nopP l
-        levelP (LAssoc, l) = lopP l
-        levelP (RAssoc, l) = ropP l
+        levelP1 :: [(Parser err str b, a -> a)] -> Parser err str a
+        levelP1 l =  (foldl (<|>) (fail "No uno ops here") (fmap parsify1 l) <*> expressionP xs)
+                 <|> expressionP xs
 
-        nopP :: [(Parser err str b, a -> a -> a)] -> Parser err str a
-        nopP l = do
+        parsify1 :: (Parser err str b, a -> a) -> Parser err str (a -> a)
+        parsify1 (p, f) = f <$ p
+
+        levelP2 :: (Assoc, [(Parser err str b, a -> a -> a)]) -> Parser err str a
+        levelP2 (NAssoc, l) = nopP2 l
+        levelP2 (LAssoc, l) = lopP2 l
+        levelP2 (RAssoc, l) = ropP2 l
+
+        nopP2 :: [(Parser err str b, a -> a -> a)] -> Parser err str a
+        nopP2 l = do
             ex <- expressionP xs
-            (foldl1 (<|>) (fmap parsify l) <*> pure ex <*> expressionP xs) <|> pure ex
+            (foldl1 (<|>) (fmap parsify2 l) <*> pure ex <*> expressionP xs) <|> pure ex
 
-        lopP :: [(Parser err str b, a -> a -> a)] -> Parser err str a
-        lopP l =
-          foldl (flip ($)) <$> (expressionP xs) <*> many (flip <$> foldl1 (<|>) (fmap parsify l) <*> expressionP xs)
+        lopP2 :: [(Parser err str b, a -> a -> a)] -> Parser err str a
+        lopP2 l =
+          foldl (flip ($)) <$> (expressionP xs) <*> many (flip <$> foldl1 (<|>) (fmap parsify2 l) <*> expressionP xs)
 
-        ropP :: [(Parser err str b, a -> a -> a)] -> Parser err str a
-        ropP l = do
+        ropP2 :: [(Parser err str b, a -> a -> a)] -> Parser err str a
+        ropP2 l = do
             ex <- expressionP xs
-            (foldl1 (<|>) (fmap parsify l) <*> pure ex <*> expressionP (x : xs)) <|> pure ex
+            (foldl1 (<|>) (fmap parsify2 l) <*> pure ex <*> expressionP (x : xs)) <|> pure ex
 
-        parsify :: (Parser err str b, a -> a -> a) -> Parser err str (a -> a -> a)
-        parsify (p, f) = f <$ p
+        parsify2 :: (Parser err str b, a -> a -> a) -> Parser err str (a -> a -> a)
+        parsify2 (p, f) = f <$ p
 
 runParserUntilEof :: ParserS ok -> String -> Either String ok
 runParserUntilEof p = first show . parse (p <* eof)
