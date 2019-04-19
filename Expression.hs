@@ -104,12 +104,7 @@ parserF =  do
     parserOp = betweenSpaces $ string "^" *> pure Pow
 
 parserT :: ParserS (EAst Integer)
-parserT = do
-    firstChar <- satisfy isDigit
-
-    case firstChar of
-      '0' -> some (char '0') >> pure (Primary 0)
-      x   -> Primary . read <$> ((x :) <$> many (satisfy isDigit))
+parserT = fmap (Primary . fromIntegral) int
 
 instance Show Operator where
   show Pow   = "^"
