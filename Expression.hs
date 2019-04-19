@@ -81,12 +81,7 @@ betweenBrackets1 :: ParserS a -> ParserS a
 betweenBrackets1 p = betweenSpaces (char '(') *> p <* betweenSpaces (char ')')
 
 primaryP :: ParserS (EAst Int)
-primaryP = do
-    firstChar <- satisfy isDigit
-
-    case firstChar of
-      '0' -> some (char '0') >> pure (Primary 0)
-      x   -> Primary . read <$> ((x :) <$> many (satisfy isDigit))
+primaryP = fmap (Primary . fromIntegral) int
 
 instance Show Operator where
   show Pow   = "^"
