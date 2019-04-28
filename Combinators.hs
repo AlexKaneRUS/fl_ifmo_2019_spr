@@ -10,6 +10,8 @@ import           Data.List           (union)
 import           Data.Maybe          (listToMaybe)
 import           Data.Tuple          (swap)
 
+import           Debug.Trace         (trace)
+
 data Trie = Trie Bool [(Char, Trie)] deriving (Eq, Show)
 
 find :: Trie -> String -> Bool
@@ -177,9 +179,8 @@ between l r p = l *> p <* r
 eof :: Parser e Char ()
 eof = Parser $ \str ->
   case str of
-    []  -> pure ([], ())
-    [x] | isSpace (symbol x) -> pure ([], ())
-    _   -> Left $ [ParserError (coordsFromTokens str) "Can't parse EOF."]
+    l | all (isSpace . symbol) l -> pure ([], ())
+    _ -> Left $ [ParserError (coordsFromTokens str) "Can't parse EOF."]
 
 getInput :: Parser e a (Tokens a)
 getInput = Parser $ \str -> pure (str, str)
