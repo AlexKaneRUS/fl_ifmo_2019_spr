@@ -43,9 +43,11 @@ parseExpression = bimap show optimize . parse (expression exprOpsListAST (primar
 
 exprOpsListAST :: OpsList String Char String (EAst Int)
 exprOpsListAST = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", BinOp Disj)
-                                     , (betweenSpaces $ string "&&", BinOp Conj)
                                      ]
                              )
+                 , binToOps (RAssoc, [ (betweenSpaces $ string "&&", BinOp Conj)
+                                     ]
+                            )
                  , binToOps (NAssoc, [ (betweenSpaces $ string "==", BinOp Eq)
                                      , (betweenSpaces $ string "/=", BinOp Neq)
                                      , (betweenSpaces $ string "<=", BinOp Le)
@@ -148,9 +150,11 @@ executeExpression input =
 
 exprOpsListCalc :: OpsList String Char String Int
 exprOpsListCalc = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $ x >= 0 || y >= 0))
-                             , (betweenSpaces $ string "&&", (\x y -> fromEnum $ x >= 0 && y >= 0))
                              ]
                    )
+                 , binToOps (RAssoc, [ (betweenSpaces $ string "&&", (\x y -> fromEnum $ x >= 0 && y >= 0))
+                                     ]
+                            )
                  , binToOps (NAssoc, [ (betweenSpaces $ string "==", (fromEnum <$>) <$> (==))
                             , (betweenSpaces $ string "/=", (fromEnum <$>) <$> (/=))
                             , (betweenSpaces $ string "<=", (fromEnum <$>) <$> (<=))
