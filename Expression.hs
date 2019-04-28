@@ -129,10 +129,10 @@ executeExpression input =
   runParserUntilEof (expression exprOpsListCalc (fromPrimary <$> primaryP) (betweenBrackets1 . betweenBrackets)) input
 
 exprOpsListCalc :: OpsList String Char String Int
-exprOpsListCalc = [ (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $ toEnum x || toEnum y))
+exprOpsListCalc = [ (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $ x /= 0 || y /= 0))
                              ]
                     )
-                  , (RAssoc, [ (betweenSpaces $ string "&&", (\x y -> fromEnum $ toEnum x && toEnum y))
+                  , (RAssoc, [ (betweenSpaces $ string "&&", (\x y -> fromEnum $ x /= 0 && y /= 0))
                              ]
                     )
                   , (NAssoc, [ (betweenSpaces $ string "==", (fromEnum <$>) <$> (==))
