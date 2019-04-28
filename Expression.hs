@@ -5,6 +5,8 @@ import           Control.Applicative (many, some, (<|>))
 import           Control.Monad       (when)
 import           Data.Bifunctor      (bimap, first)
 import           Data.Char           (isAlphaNum, isDigit, isLower)
+import           Data.Map.Strict     (Map)
+import qualified Data.Map.Strict     as M
 import           Text.Printf
 
 import           Debug.Trace         (trace)
@@ -26,22 +28,30 @@ data Operator = Pow
               | LogNeg
   deriving (Eq)
 
+instance Show Operator where
+  show Pow    = "^"
+  show Mul    = "*"
+  show Div    = "/"
+  show Sum    = "+"
+  show Minus  = "-"
+  show Eq     = "=="
+  show Neq    = "/="
+  show Le     = "<="
+  show Lt     = "<"
+  show Ge     = ">="
+  show Gt     = ">"
+  show Conj   = "&&"
+  show Disj   = "||"
+  show Neg    = "-"
+  show LogNeg = "!"
+
 -- Simplest abstract syntax tree for expressions: only binops are allowed
-data EAst a = BinOp Operator (EAst a) (EAst a)
+data GradskellAst a = BinOp Operator (EAst a) (EAst a)
             | UnOp Operator (EAst a)
             | Primary a
             | Var String
 
-fromPrimary :: EAst a -> a
-fromPrimary (Primary a) = a
-fromPrimary _           = Prelude.error "Not primary."
-
--- Change the signature if necessary
--- Constructs AST for the input expression
-parseExpression :: String -> Either String (EAst Int)
-parseExpression = bimap show optimize . parse (expression exprOpsListAST (primaryP <|> varP) (betweenBrackets1 . betweenBrackets))
-
-exprOpsListAST :: OpsList String Char String (EAst Int)
+exprOpsListAST :: OpsList String Char String (GradskellAst Int)
 exprOpsListAST = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", BinOp Disj)
                                      , (betweenSpaces $ string "&&", BinOp Conj)
                                      ]
@@ -88,7 +98,7 @@ betweenBrackets p = do
 betweenBrackets1 :: ParserS a -> ParserS a
 betweenBrackets1 p = betweenSpaces (char '(') *> p <* betweenSpaces (char ')')
 
-primaryP :: ParserS (EAst Int)
+primaryP :: ParserS (GradskellAst Int)
 primaryP = do
     firstChar <- satisfy isDigit
 
@@ -96,87 +106,14 @@ primaryP = do
       '0' -> many (char '0') >> pure (Primary 0)
       x   -> Primary . read <$> ((x :) <$> many (satisfy isDigit))
 
-varP :: ParserS (EAst Int)
+varP :: ParserS (GradskellAst Int)
 varP = fmap Var . (:) <$> (char '_' <|> satisfy isLower) <*> many (satisfy isAlphaNum)
-
-instance Show Operator where
-  show Pow    = "^"
-  show Mul    = "*"
-  show Div    = "/"
-  show Sum    = "+"
-  show Minus  = "-"
-  show Eq     = "=="
-  show Neq    = "/="
-  show Le     = "<="
-  show Lt     = "<"
-  show Ge     = ">="
-  show Gt     = ">"
-  show Conj   = "&&"
-  show Disj   = "||"
-  show Neg    = "-"
-  show LogNeg = "!"
-
-instance Show a => Show (EAst a) where
-  show = show' 0
-    where
-      show' n t =
-        (if n > 0 then printf "%s|_%s" (concat (replicate (n - 1) "| ")) else id)
-        (case t of
-                  BinOp op l r -> printf "%s\n%s\n%s" (show op) (show' (ident n) l) (show' (ident n) r)
-                  UnOp  op l   -> printf "%s\n%s" (show op) (show' (ident n) l)
-                  Var   x      -> x
-                  Primary x    -> show x)
-      ident = (+1)
-
-{-
-show (BinOp Conj (BinOp Pow (Primary 1) (BinOp Sum (Primary 2) (Primary 3))) (Primary 4))
-
-&&
-|_^
-| |_1
-| |_+
-| | |_2
-| | |_3
-|_4
--}
-
--- Change the signature if necessary
--- Calculates the value of the input expression
-executeExpression :: String -> Either String Int
-executeExpression input =
-  runParserUntilEof (expression exprOpsListCalc (fromPrimary <$> primaryP) (betweenBrackets1 . betweenBrackets)) input
-
-exprOpsListCalc :: OpsList String Char String Int
-exprOpsListCalc = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $ x >= 0 || y >= 0))
-                             , (betweenSpaces $ string "&&", (\x y -> fromEnum $ x >= 0 && y >= 0))
-                             ]
-                   )
-                 , binToOps (NAssoc, [ (betweenSpaces $ string "==", (fromEnum <$>) <$> (==))
-                            , (betweenSpaces $ string "/=", (fromEnum <$>) <$> (/=))
-                            , (betweenSpaces $ string "<=", (fromEnum <$>) <$> (<=))
-                            , (betweenSpaces $ string  "<", (fromEnum <$>) <$> (<))
-                            , (betweenSpaces $ string ">=", (fromEnum <$>) <$> (>=))
-                            , (betweenSpaces $ string  ">", (fromEnum <$>) <$> (>))
-                            ]
-                   )
-                 , binToOps (LAssoc, [ (betweenSpaces $ string "+", (+))
-                            , (betweenSpaces $ string "-", (-))
-                            ]
-                   )
-                 , binToOps (LAssoc, [ (betweenSpaces $ string "*", (*))
-                            , (betweenSpaces $ string "/", (\x y -> round $ fromIntegral x / fromIntegral y))
-                            ]
-                   )
-                 , binToOps (RAssoc, [ (betweenSpaces $ string "^", (^))
-                            ]
-                   )
-                 ]
 
 --------------------------------------------------------------------------------
 -- Optimizations.
 --------------------------------------------------------------------------------
 
-optimize :: EAst Int -> EAst Int
+optimize :: GradskellAst Int -> GradskellAst Int
 optimize (Primary a) = Primary a
 optimize (Var a)     = Var a
 optimize (UnOp op inner) | op == Neg, Primary x <- optimized = Primary (-x)
@@ -199,4 +136,44 @@ optimize (BinOp op l r) | op == Mul,  Primary 0 <- l'  = Primary 0      -- 0 * a
   where
     l' = optimize l
     r' = optimize r
+
+
+--------------------------------------------------------------------------------
+-- Gradskell.
+--------------------------------------------------------------------------------
+
+type VarName = String
+type FuncName = String
+
+type DataType = String
+type DataConstructor = String
+
+data GradskellAst' = GradskellProgram [DataType] (Map FuncName Func)
+
+data Func = Func [FuncArg] Type Body
+
+type Body = Expression
+
+data FuncArg = VarArg VarName | PatternArg DataConstructor [VarName]
+
+infixl 5 :->
+
+data Type = Int | Bool | Directed | Undirected | DataType DataType | Type :-> Type
+
+data Expression = BinOp Operator (EAst a) (EAst a)
+                | UnOp Operator (EAst a)
+                | PrimaryEx Primary
+                | Var String
+
+data Primary = PInt Int
+             | PBool Bool
+             | PDirected Directed
+             | PUndirected Undirected
+             | PData DataConstructor [DataArg]
+
+data DataArg = DArgVar VarName | DArgExp Expression
+
+-- Program.
+-- Pr  $\to$ Data Pr | Pr'
+-- Pr' $\to$ Fu Pr | Fu | Ex
 
