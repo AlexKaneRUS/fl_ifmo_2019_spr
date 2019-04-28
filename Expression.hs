@@ -38,7 +38,9 @@ parseExpression = first show . parse (expression exprOpsListAST primaryP (betwee
 
 exprOpsListAST :: OpsList String Char String (EAst Int)
 exprOpsListAST = [ (RAssoc, [ (betweenSpaces $ string "||", BinOp Disj)
-                            , (betweenSpaces $ string "&&", BinOp Conj)
+                            ]
+                   )
+                 , (RAssoc, [ (betweenSpaces $ string "&&", BinOp Conj)
                             ]
                    )
                  , (NAssoc, [ (betweenSpaces $ string "==", BinOp Eq)
@@ -128,26 +130,28 @@ executeExpression input =
 
 exprOpsListCalc :: OpsList String Char String Int
 exprOpsListCalc = [ (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $ x >= 0 || y >= 0))
-                             , (betweenSpaces $ string "&&", (\x y -> fromEnum $ x >= 0 && y >= 0))
                              ]
-                   )
-                 , (NAssoc, [ (betweenSpaces $ string "==", (fromEnum <$>) <$> (==))
-                            , (betweenSpaces $ string "/=", (fromEnum <$>) <$> (/=))
-                            , (betweenSpaces $ string "<=", (fromEnum <$>) <$> (<=))
-                            , (betweenSpaces $ string  "<", (fromEnum <$>) <$> (<))
-                            , (betweenSpaces $ string ">=", (fromEnum <$>) <$> (>=))
-                            , (betweenSpaces $ string  ">", (fromEnum <$>) <$> (>))
-                            ]
-                   )
-                 , (LAssoc, [ (betweenSpaces $ string "+", (+))
-                            , (betweenSpaces $ string "-", (-))
-                            ]
-                   )
-                 , (LAssoc, [ (betweenSpaces $ string "*", (*))
-                            , (betweenSpaces $ string "/", (\x y -> round $ fromIntegral x / fromIntegral y))
-                            ]
-                   )
-                 , (RAssoc, [ (betweenSpaces $ string "^", (^))
-                            ]
-                   )
-                 ]
+                    )
+                  , (RAssoc, [ (betweenSpaces $ string "&&", (\x y -> fromEnum $ x >= 0 && y >= 0))
+                             ]
+                    )
+                  , (NAssoc, [ (betweenSpaces $ string "==", (fromEnum <$>) <$> (==))
+                             , (betweenSpaces $ string "/=", (fromEnum <$>) <$> (/=))
+                             , (betweenSpaces $ string "<=", (fromEnum <$>) <$> (<=))
+                             , (betweenSpaces $ string  "<", (fromEnum <$>) <$> (<))
+                             , (betweenSpaces $ string ">=", (fromEnum <$>) <$> (>=))
+                             , (betweenSpaces $ string  ">", (fromEnum <$>) <$> (>))
+                             ]
+                    )
+                  , (LAssoc, [ (betweenSpaces $ string "+", (+))
+                             , (betweenSpaces $ string "-", (-))
+                             ]
+                    )
+                  , (LAssoc, [ (betweenSpaces $ string "*", (*))
+                             , (betweenSpaces $ string "/", (\x y -> round $ fromIntegral x / fromIntegral y))
+                             ]
+                    )
+                  , (RAssoc, [ (betweenSpaces $ string "^", (^))
+                             ]
+                    )
+                  ]
