@@ -33,10 +33,10 @@ fromPrimary _           = Prelude.error "Not primary."
 
 -- Change the signature if necessary
 -- Constructs AST for the input expression
-parseExpression :: String -> Either String (EAst Int)
+parseExpression :: String -> Either String (EAst Integer)
 parseExpression = first show . parse (expression exprOpsListAST primaryP (betweenBrackets1 . betweenBrackets))
 
-exprOpsListAST :: OpsList String Char String (EAst Int)
+exprOpsListAST :: OpsList String Char String (EAst Integer)
 exprOpsListAST = [ (RAssoc, [ (betweenSpaces $ string "||", BinOp Disj)
                             ]
                    )
@@ -82,7 +82,7 @@ betweenBrackets p = do
 betweenBrackets1 :: ParserS a -> ParserS a
 betweenBrackets1 p = betweenSpaces (char '(') *> p <* betweenSpaces (char ')')
 
-primaryP :: ParserS (EAst Int)
+primaryP :: ParserS (EAst Integer)
 primaryP = fmap (Primary . fromIntegral) int
 
 instance Show Operator where
@@ -124,23 +124,23 @@ show (BinOp Conj (BinOp Pow (Primary 1) (BinOp Sum (Primary 2) (Primary 3))) (Pr
 
 -- Change the signature if necessary
 -- Calculates the value of the input expression
-executeExpression :: String -> Either String Int
+executeExpression :: String -> Either String Integer
 executeExpression input =
   runParserUntilEof (expression exprOpsListCalc (fromPrimary <$> primaryP) (betweenBrackets1 . betweenBrackets)) input
 
-exprOpsListCalc :: OpsList String Char String Int
-exprOpsListCalc = [ (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $ x /= 0 || y /= 0))
+exprOpsListCalc :: OpsList String Char String Integer
+exprOpsListCalc = [ (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum' $ x /= 0 || y /= 0))
                              ]
                     )
-                  , (RAssoc, [ (betweenSpaces $ string "&&", (\x y -> fromEnum $ x /= 0 && y /= 0))
+                  , (RAssoc, [ (betweenSpaces $ string "&&", (\x y -> fromEnum' $ x /= 0 && y /= 0))
                              ]
                     )
-                  , (NAssoc, [ (betweenSpaces $ string "==", (fromEnum <$>) <$> (==))
-                             , (betweenSpaces $ string "/=", (fromEnum <$>) <$> (/=))
-                             , (betweenSpaces $ string "<=", (fromEnum <$>) <$> (<=))
-                             , (betweenSpaces $ string  "<", (fromEnum <$>) <$> (<))
-                             , (betweenSpaces $ string ">=", (fromEnum <$>) <$> (>=))
-                             , (betweenSpaces $ string  ">", (fromEnum <$>) <$> (>))
+                  , (NAssoc, [ (betweenSpaces $ string "==", (fromEnum' <$>) <$> (==))
+                             , (betweenSpaces $ string "/=", (fromEnum' <$>) <$> (/=))
+                             , (betweenSpaces $ string "<=", (fromEnum' <$>) <$> (<=))
+                             , (betweenSpaces $ string  "<", (fromEnum' <$>) <$> (<))
+                             , (betweenSpaces $ string ">=", (fromEnum' <$>) <$> (>=))
+                             , (betweenSpaces $ string  ">", (fromEnum' <$>) <$> (>))
                              ]
                     )
                   , (LAssoc, [ (betweenSpaces $ string "+", (+))
@@ -155,3 +155,7 @@ exprOpsListCalc = [ (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $
                              ]
                     )
                   ]
+
+fromEnum' :: Bool -> Integer
+fromEnum' b | b         = 1
+            | otherwise = 0

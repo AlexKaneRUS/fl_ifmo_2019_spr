@@ -40,7 +40,7 @@ testExpression :: String -> String -> IO ()
 testExpression s s' = if fmap show (parseExpression s) == Right s' then putStrLn $ "OK: " ++ s
                      else putStrLn $ "FAIL: " ++ s
 
-testExecuteExpression :: String -> Int -> IO ()
+testExecuteExpression :: String -> Integer -> IO ()
 testExecuteExpression s s' = if executeExpression s == Right s' then putStrLn $ "OK: " ++ s
                              else putStrLn $ "FAIL: " ++ s
 
