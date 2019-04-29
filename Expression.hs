@@ -39,7 +39,10 @@ fromPrimary _           = Prelude.error "Not primary."
 -- Change the signature if necessary
 -- Constructs AST for the input expression
 parseExpression :: String -> Either String (EAst Int)
-parseExpression = bimap show optimize . parse (expression exprOpsListAST (primaryP <|> varP) (betweenBrackets1 . betweenBrackets))
+parseExpression = bimap show id . parse (expression exprOpsListAST (primaryP <|> varP) (betweenBrackets1 . betweenBrackets))
+
+parseExpressionOptimized :: String -> Either String (EAst Int)
+parseExpressionOptimized = fmap optimize . parseExpression
 
 exprOpsListAST :: OpsList String Char String (EAst Int)
 exprOpsListAST = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", BinOp Disj)
@@ -64,12 +67,12 @@ exprOpsListAST = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", BinOp Disj)
                                      , (betweenSpaces $ string "/", BinOp Div)
                                      ]
                              )
-                 , unoToOps [ (betweenSpaces $ string "!", UnOp LogNeg)
-                            , (betweenSpaces $ string "-", UnOp Neg)
-                            ]
                  , binToOps (RAssoc, [ (betweenSpaces $ string "^", BinOp Pow)
                                      ]
                              )
+                 , unoToOps [ (betweenSpaces $ string "!", UnOp LogNeg)
+                            , (betweenSpaces $ string "-", UnOp Neg)
+                            ]
                  ]
 
 betweenSpaces :: ParserS a -> ParserS a
@@ -91,12 +94,7 @@ betweenBrackets1 :: ParserS a -> ParserS a
 betweenBrackets1 p = betweenSpaces (char '(') *> p <* betweenSpaces (char ')')
 
 primaryP :: ParserS (EAst Int)
-primaryP = do
-    firstChar <- satisfy isDigit
-
-    case firstChar of
-      '0' -> many (char '0') >> pure (Primary 0)
-      x   -> Primary . read <$> ((x :) <$> many (satisfy isDigit))
+primaryP = fmap Primary int
 
 varP :: ParserS (EAst Int)
 varP = fmap Var . (:) <$> (char '_' <|> satisfy isLower) <*> many (satisfy isAlphaNum)
