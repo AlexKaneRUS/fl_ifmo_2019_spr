@@ -7,8 +7,6 @@ import           Data.Bifunctor      (bimap, first)
 import           Data.Char           (isAlphaNum, isDigit, isLower)
 import           Text.Printf
 
-import           Debug.Trace         (trace)
-
 data Operator = Pow
               | Mul
               | Div
@@ -38,16 +36,16 @@ fromPrimary _           = Prelude.error "Not primary."
 
 -- Change the signature if necessary
 -- Constructs AST for the input expression
-parseExpression :: String -> Either String (EAst Int)
+parseExpression :: String -> Either String (EAst Integer)
 parseExpression = bimap show id . parse (expression exprOpsListAST (primaryP <|> varP) (betweenBrackets1 . betweenBrackets))
 
-parseExpressionOptimized :: String -> Either String (EAst Int)
+parseExpressionOptimized :: String -> Either String (EAst Integer)
 parseExpressionOptimized = fmap optimize . parseExpression
 
-exprOpsListAST :: OpsList String Char String (EAst Int)
+exprOpsListAST :: OpsList String Char String (EAst Integer)
 exprOpsListAST = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", BinOp Disj)
                                      ]
-                             )
+                            )
                  , binToOps (RAssoc, [ (betweenSpaces $ string "&&", BinOp Conj)
                                      ]
                             )
@@ -93,10 +91,10 @@ betweenBrackets p = do
 betweenBrackets1 :: ParserS a -> ParserS a
 betweenBrackets1 p = betweenSpaces (char '(') *> p <* betweenSpaces (char ')')
 
-primaryP :: ParserS (EAst Int)
-primaryP = fmap Primary int
+primaryP :: ParserS (EAst Integer)
+primaryP = fmap (Primary . fromIntegral) int
 
-varP :: ParserS (EAst Int)
+varP :: ParserS (EAst Integer)
 varP = fmap Var . (:) <$> (char '_' <|> satisfy isLower) <*> many (satisfy isAlphaNum)
 
 instance Show Operator where
@@ -142,23 +140,23 @@ show (BinOp Conj (BinOp Pow (Primary 1) (BinOp Sum (Primary 2) (Primary 3))) (Pr
 
 -- Change the signature if necessary
 -- Calculates the value of the input expression
-executeExpression :: String -> Either String Int
+executeExpression :: String -> Either String Integer
 executeExpression input =
   runParserUntilEof (expression exprOpsListCalc (fromPrimary <$> primaryP) (betweenBrackets1 . betweenBrackets)) input
 
-exprOpsListCalc :: OpsList String Char String Int
-exprOpsListCalc = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum $ x >= 0 || y >= 0))
+exprOpsListCalc :: OpsList String Char String Integer
+exprOpsListCalc = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", (\x y -> fromEnum' $ x /= 0 || y /= 0))
                              ]
                    )
-                 , binToOps (RAssoc, [ (betweenSpaces $ string "&&", (\x y -> fromEnum $ x >= 0 && y >= 0))
+                 , binToOps (RAssoc, [ (betweenSpaces $ string "&&", (\x y -> fromEnum' $ x /= 0 && y /= 0))
                                      ]
                             )
-                 , binToOps (NAssoc, [ (betweenSpaces $ string "==", (fromEnum <$>) <$> (==))
-                            , (betweenSpaces $ string "/=", (fromEnum <$>) <$> (/=))
-                            , (betweenSpaces $ string "<=", (fromEnum <$>) <$> (<=))
-                            , (betweenSpaces $ string  "<", (fromEnum <$>) <$> (<))
-                            , (betweenSpaces $ string ">=", (fromEnum <$>) <$> (>=))
-                            , (betweenSpaces $ string  ">", (fromEnum <$>) <$> (>))
+                 , binToOps (NAssoc, [ (betweenSpaces $ string "==", (fromEnum' <$>) <$> (==))
+                            , (betweenSpaces $ string "/=", (fromEnum' <$>) <$> (/=))
+                            , (betweenSpaces $ string "<=", (fromEnum' <$>) <$> (<=))
+                            , (betweenSpaces $ string  "<", (fromEnum' <$>) <$> (<))
+                            , (betweenSpaces $ string ">=", (fromEnum' <$>) <$> (>=))
+                            , (betweenSpaces $ string  ">", (fromEnum' <$>) <$> (>))
                             ]
                    )
                  , binToOps (LAssoc, [ (betweenSpaces $ string "+", (+))
@@ -169,16 +167,23 @@ exprOpsListCalc = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", (\x y -> f
                             , (betweenSpaces $ string "/", (\x y -> round $ fromIntegral x / fromIntegral y))
                             ]
                    )
-                 , binToOps (RAssoc, [ (betweenSpaces $ string "^", (^))
+                 , binToOps (RAssoc, [ (betweenSpaces $ string "^", (\x y -> if y <= 0 then round $ fromIntegral x / fromIntegral (abs y) else x ^ y) )
                             ]
                    )
+               , unoToOps [ (betweenSpaces $ string "!", (-) 1)
+                          , (betweenSpaces $ string "-", (-) 0)
+                          ]
                  ]
+
+fromEnum' :: Bool -> Integer
+fromEnum' b | b         = 1
+            | otherwise = 0
 
 --------------------------------------------------------------------------------
 -- Optimizations.
 --------------------------------------------------------------------------------
 
-optimize :: EAst Int -> EAst Int
+optimize :: EAst Integer -> EAst Integer
 optimize (Primary a) = Primary a
 optimize (Var a)     = Var a
 optimize (UnOp op inner) | op == Neg, Primary x <- optimized = Primary (-x)

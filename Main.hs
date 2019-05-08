@@ -40,7 +40,11 @@ testExpression :: String -> String -> IO ()
 testExpression s s' = if fmap show (parseExpression s) == Right s' then putStrLn $ "OK: " ++ s
                      else putStrLn $ "FAIL: " ++ s
 
-testExecuteExpression :: String -> Int -> IO ()
+testExpressionOptimized :: String -> String -> IO ()
+testExpressionOptimized s s' = if fmap show (parseExpressionOptimized s) == Right s' then putStrLn $ "OK: " ++ s
+                               else putStrLn $ "FAIL: " ++ s
+
+testExecuteExpression :: String -> Integer -> IO ()
 testExecuteExpression s s' = if executeExpression s == Right s' then putStrLn $ "OK: " ++ s
                              else putStrLn $ "FAIL: " ++ s
 
@@ -117,7 +121,7 @@ runTestExpressions = do
                    "| | | | |_2" ++ "\n" ++
                    "| | | | |_!" ++ "\n" ++
                    "| | | | | |_-3"
-    testExpression "-(1 + 2 + !(2 - (2-!(-3))))" unaryOps
+    testExpressionOptimized "-(1 + 2 + !(2 - (2-!(-3))))" unaryOps
 
     let unaryOpsWithVars = "-" ++ "\n" ++
                            "|_+" ++ "\n" ++
@@ -131,7 +135,7 @@ runTestExpressions = do
                            "| | | | |_aaaa" ++ "\n" ++
                            "| | | | |_!" ++ "\n" ++
                            "| | | | | |_-3"
-    testExpression "-(1 + _y + !(x - (aaaa-!(-3))))" unaryOpsWithVars
+    testExpressionOptimized "-(1 + _y + !(x - (aaaa-!(-3))))" unaryOpsWithVars
 
     let unaryOpsWithVars = "-" ++ "\n" ++
                            "|_+" ++ "\n" ++
@@ -143,7 +147,7 @@ runTestExpressions = do
                            "| | | | |_aaaa" ++ "\n" ++
                            "| | | | |_!" ++ "\n" ++
                            "| | | | | |_-3"
-    testExpression "-(0 + 1 + !(x - (aaaa-!(-3))))" unaryOpsWithVars
+    testExpressionOptimized "-(0 + 1 + !(x - (aaaa-!(-3))))" unaryOpsWithVars
 
     let optimizations1 = "-" ++ "\n" ++
                         "|_+" ++ "\n" ++
@@ -155,10 +159,10 @@ runTestExpressions = do
                         "| | | | |_aaaa" ++ "\n" ++
                         "| | | | |_!" ++ "\n" ++
                         "| | | | | |_-3"
-    testExpression "-(0 + _y - 0 + !(x^0 - (aaaa * 1 -!(-3 / 1))))" optimizations1
+    testExpressionOptimized "-(0 + _y - 0 + !(x^0 - (aaaa * 1 -!(-3 / 1))))" optimizations1
 
     let optimizations2 = "1"
-    testExpression "-(0 + 0 ^ 1 - 0 / 1) * (1 ^ 10 + (7 - 0) * (0)) + 1" optimizations2
+    testExpressionOptimized "-(0 + 0 ^ 1 - 0 / 1) * (1 ^ 10 + (7 - 0) * (0)) + 1" optimizations2
 
 testEpsClojure :: String -> String -> IO ()
 testEpsClojure s s' | Right a <- fmap epsClojure (parseAutomaton s), Right b <- parseAutomaton s', a == b = putStrLn $ "OK: " ++ s
