@@ -1,5 +1,5 @@
 data Pair = PairU Undirected Undirected | PairD Directed Directed
-data Tripe = T Undirected Directed Bool
+data Triple = T Undirected Directed Bool
 
 func(p1, PairD graphA graphB) : Pair -> Pair -> Bool = {
     if (let a = mkDirected() in graphA > a)
@@ -13,7 +13,7 @@ func(p1, PairD graphA graphB) : Pair -> Pair -> Bool = {
 
 func(t) : Triple -> Bool = {
     let T a b c = t in
-      let x = c ^ 2 in
+      let x = 2 ^ 2 in
         let a = b in
           a == b
 }

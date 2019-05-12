@@ -1,14 +1,15 @@
 data Pair = PairU Undirected Undirected | PairD Directed Directed
+data Graph = D Directed | U Undirected
 
-min(PairU graphA graphB) : Pair -> Undirected = {
+min(PairU graphA graphB) : Pair -> Graph = {
     if graphA < graphB 
-      then graphA
-      else graphB
+      then U graphA
+      else U graphB
 }
-min(PairD graphA graphB) : Pair -> Directed = {
+min(PairD graphA graphB) : Pair -> Graph = {
     if graphA < graphB 
-      then graphA
-      else graphB
+      then D graphA
+      else D graphB
 }
 
 let graphA = <<[1, 2, 3], [(1, 2, 0), (2, 0, 0)]>> in

@@ -22,6 +22,53 @@ import           Text.Printf
 
 import           Debug.Trace                  (trace)
 
+--------------------------------------------------------------------------------
+-- Gradskell AST.
+--------------------------------------------------------------------------------
+
+data GradskellAst = GradskellProgram { dataTypes :: Map DataType [Constructor]
+                                     , functions :: Map FuncName [Func]
+                                     , program   :: Expression
+                                     }
+  deriving (Eq, Show)
+
+type DataConstructor = String
+data Constructor = Constructor { constructor :: DataConstructor
+                               , argTypes    :: [Type]
+                               }
+  deriving (Eq, Show)
+type DataType = String
+data Type = Int | Bool | Directed | Undirected | DataType DataType | Arrow Type Type | Unit
+  deriving (Eq, Ord, Show)
+
+type FuncName = String
+data Func = Func [FuncArg] Type Body
+  deriving (Eq, Show)
+data FuncArg = VarArg Primary | PatternArg DataConstructor [Primary]
+  deriving (Eq, Show)
+type Body = Expression
+
+data Expression = ITE Expression Expression Expression
+                | LetVar Primary Expression Expression
+                | LetData DataConstructor [Primary] Expression Expression
+                | ArEx ArExpression
+                | Primary Primary
+  deriving (Eq, Show)
+
+type VarName = String
+data Primary = PInt Int
+             | PBool Bool
+             | PDirected [Int] [(Int, Int, Int)]
+             | PUndirected [Int] [(Int, Int, Int)]
+             | PData DataConstructor [Expression]
+             | PVar VarName
+             | PFuncCall FuncName [Expression]
+  deriving (Eq, Show)
+
+data ArExpression = BinOp Operator Expression Expression
+                  | UnOp Operator Expression
+  deriving (Eq, Show)
+
 data Operator = Pow
               | Mul
               | Div
@@ -39,87 +86,104 @@ data Operator = Pow
               | LogNeg
   deriving (Eq, Show)
 
-exprOpsListAST :: OpsList String Char String Expression
-exprOpsListAST = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", toExpr $ BinOp Disj)
-                                     , (betweenSpaces $ string "&&", toExpr $ BinOp Conj)
-                                     ]
-                             )
-                 , binToOps (NAssoc, [ (betweenSpaces $ string "==", toExpr $ BinOp Eq)
-                                     , (betweenSpaces $ string "/=", toExpr $ BinOp Neq)
-                                     , (betweenSpaces $ string "<=", toExpr $ BinOp Le)
-                                     , (betweenSpaces $ string  "<", toExpr $ BinOp Lt)
-                                     , (betweenSpaces $ string ">=", toExpr $ BinOp Ge)
-                                     , (betweenSpaces $ string  ">", toExpr $ BinOp Gt)
-                                     ]
-                             )
-                 , binToOps (LAssoc, [ (betweenSpaces $ string "+", toExpr $ BinOp Sum)
-                                     , (betweenSpaces $ string "-", toExpr $ BinOp Minus)
-                                     ]
-                             )
-                 , binToOps (LAssoc, [ (betweenSpaces $ string "*", toExpr $ BinOp Mul)
-                                     , (betweenSpaces $ string "/", toExpr $ BinOp Div)
-                                     ]
-                             )
-                 , unoToOps [ (betweenSpaces $ string "!", toExprU $ UnOp LogNeg)
-                            , (betweenSpaces $ string "-", toExprU $ UnOp Neg)
-                            ]
-                 , binToOps (RAssoc, [ (betweenSpaces $ string "^", toExpr $ BinOp Pow)
-                                     ]
-                             )
-                 ]
+--------------------------------------------------------------------------------
+-- Gradskell Parser.
+--------------------------------------------------------------------------------
 
-toExpr :: (Expression -> Expression -> ArExpression) -> Expression -> Expression -> Expression
-toExpr f a = ArEx . f a
+gradskellP :: ParserS GradskellAst
+gradskellP =  GradskellProgram
+          <$> (M.fromList <$> many (many space *> aDTP))
+          <*> (M.fromList . ungroups <$> many (many space *> functionP))
+          <*> (many space *> expressionP)
 
-toExprU :: (Expression -> ArExpression) -> Expression -> Expression
-toExprU f = ArEx . f
+aDTP :: ParserS (DataType, [Constructor])
+aDTP =  (,)
+    <$> (string "data" *> betweenSpaces dataTypeP <* betweenSpaces (char '='))
+    <*> ((++) <$> many (constructorP <* betweenSpaces (char '|')) <*> (fmap pure constructorP))
+  where
+    constructorP :: ParserS Constructor
+    constructorP = Constructor <$> dataConstructorP <*> many (some space *> (notArrowP <|> betweenBrackets1 arrowP))
 
-betweenSpaces :: ParserS a -> ParserS a
-betweenSpaces = between (many space) (many space)
+functionP :: ParserS (FuncName, Func)
+functionP =  (,)
+         <$> funcNameP
+         <*> funcP
+  where
+    funcP :: ParserS Func
+    funcP =  Func
+         <$> betweenBrackets1 (((:) <$> funcArgP <*> many (char ',' *> betweenSpaces funcArgP)) <|> pure [])
+         <*> (betweenSpaces (char ':') *> typeP)
+         <*> (betweenSpaces (char '=') *> between (betweenSpaces (string "{")) (betweenSpaces (string "}")) expressionP)
 
-betweenSpaces1 :: ParserS a -> ParserS a
-betweenSpaces1 = between (some space) (some space)
-
-betweenBrackets :: ParserS a -> ParserS a
-betweenBrackets p = do
-    _        <- many space
-    bracketM <- peek
-
-    case bracketM of
-      Just '(' -> char '(' *> betweenBrackets p <* many space <* char ')'
-      _        -> p
-
-betweenBrackets1 :: ParserS a -> ParserS a
-betweenBrackets1 p = char '(' *> many space *> betweenBrackets p <* many space <* char ')'
+    funcArgP :: ParserS FuncArg
+    funcArgP = (uncurry PatternArg <$> patternMatchDataP) <|> (VarArg <$> pVarP)
 
 expressionP :: ParserS Expression
 expressionP = betweenBrackets (iTEP <|> letVarP <|> letDataP <|> arExpressionP <|> primaryP)
+  where
+    iTEP :: ParserS Expression
+    iTEP =  ITE
+        <$> (string "if" *> some space *> expressionP)
+        <*> (some space *> string "then" *> some space *> expressionP)
+        <*> (some space *> string "else" *> some space *> expressionP)
 
-iTEP :: ParserS Expression
-iTEP =  ITE
-    <$> (string "if" *> some space *> expressionP)
-    <*> (some space *> string "then" *> some space *> expressionP)
-    <*> (some space *> string "else" *> some space *> expressionP)
+    letVarP :: ParserS Expression
+    letVarP =  LetVar
+           <$> (string "let" *> some space *> pVarP)
+           <*> (some space *> char '=' *> some space *> expressionP)
+           <*> (some space *> string "in" *> some space *> expressionP)
 
-letVarP :: ParserS Expression
-letVarP =  LetVar
-       <$> (string "let" *> some space *> pVarP)
-       <*> (some space *> char '=' *> some space *> expressionP)
-       <*> (some space *> string "in" *> some space *> expressionP)
+    letDataP :: ParserS Expression
+    letDataP =  uncurry LetData
+            <$> (string "let" *> some space *> patternMatchDataP)
+            <*> (betweenSpaces1 (char '=') *> expressionP)
+            <*> (betweenSpaces1 (string "in") *> expressionP)
 
-letDataP :: ParserS Expression
-letDataP =  uncurry LetData
-        <$> (string "let" *> some space *> patternMatchDataP)
-        <*> (betweenSpaces1 (char '=') *> expressionP)
-        <*> (betweenSpaces1 (string "in") *> expressionP)
+    arExpressionP :: ParserS Expression
+    arExpressionP = expression exprOpsListAST primaryP betweenBrackets1
+
+    exprOpsListAST :: OpsList String Char String Expression
+    exprOpsListAST = [ binToOps (RAssoc, [ (betweenSpaces $ string "||", toExpr $ BinOp Disj)
+                                         , (betweenSpaces $ string "&&", toExpr $ BinOp Conj)
+                                         ]
+                                 )
+                     , binToOps (NAssoc, [ (betweenSpaces $ string "==", toExpr $ BinOp Eq)
+                                         , (betweenSpaces $ string "/=", toExpr $ BinOp Neq)
+                                         , (betweenSpaces $ string "<=", toExpr $ BinOp Le)
+                                         , (betweenSpaces $ string  "<", toExpr $ BinOp Lt)
+                                         , (betweenSpaces $ string ">=", toExpr $ BinOp Ge)
+                                         , (betweenSpaces $ string  ">", toExpr $ BinOp Gt)
+                                         ]
+                                 )
+                     , binToOps (LAssoc, [ (betweenSpaces $ string "+", toExpr $ BinOp Sum)
+                                         , (betweenSpaces $ string "-", toExpr $ BinOp Minus)
+                                         ]
+                                 )
+                     , binToOps (LAssoc, [ (betweenSpaces $ string "*", toExpr $ BinOp Mul)
+                                         , (betweenSpaces $ string "/", toExpr $ BinOp Div)
+                                         ]
+                                 )
+                     , unoToOps [ (betweenSpaces $ string "!", toExprU $ UnOp LogNeg)
+                                , (betweenSpaces $ string "-", toExprU $ UnOp Neg)
+                                ]
+                     , binToOps (RAssoc, [ (betweenSpaces $ string "^", toExpr $ BinOp Pow)
+                                         ]
+                                 )
+                     ]
+
+    toExpr :: (Expression -> Expression -> ArExpression) -> Expression -> Expression -> Expression
+    toExpr f a = ArEx . f a
+
+    toExprU :: (Expression -> ArExpression) -> Expression -> Expression
+    toExprU f = ArEx . f
 
 patternMatchDataP :: ParserS (DataConstructor, [Primary])
 patternMatchDataP =  (,)
                  <$> dataConstructorP
                  <*> (some space *> some (many space *> pVarP))
 
-arExpressionP :: ParserS Expression
-arExpressionP = expression exprOpsListAST primaryP betweenBrackets1
+pVarP :: ParserS Primary
+pVarP = fmap PVar varNameP
 
 primaryP :: ParserS Expression
 primaryP = Primary <$> primaryP'
@@ -127,55 +191,61 @@ primaryP = Primary <$> primaryP'
     primaryP' :: ParserS Primary
     primaryP' = pIntP <|> pBoolP <|> pUndirectedP <|> pDirectedP <|> pDataP <|> pFuncCallP <|> pVarP
 
-pIntP :: ParserS Primary
-pIntP = fmap PInt int
+    pIntP :: ParserS Primary
+    pIntP = fmap PInt int
 
-pVarP :: ParserS Primary
-pVarP = fmap PVar varNameP
+    pBoolP :: ParserS Primary
+    pBoolP = PBool <$> ((True <$ string "True") <|> (False <$ string "False"))
 
-pBoolP :: ParserS Primary
-pBoolP = PBool <$> ((True <$ string "True") <|> (False <$ string "False"))
+    pUndirectedP :: ParserS Primary
+    pUndirectedP = char '<' *> (dirToUn <$> pDirectedP) <* char '>'
+      where
+        dirToUn :: Primary -> Primary
+        dirToUn (PDirected a b) = PUndirected a b
+        dirToUn _               = error "Unexpected usage of dirToUn."
 
-pUndirectedP :: ParserS Primary
-pUndirectedP = char '<' *> (dirToUn <$> pDirectedP) <* char '>'
-  where
-    dirToUn :: Primary -> Primary
-    dirToUn (PDirected a b) = PUndirected a b
-    dirToUn _               = error "Unexpected usage of dirToUn."
+    pDirectedP :: ParserS Primary
+    pDirectedP = do
+        _ <- char '<'
+        _ <- many space
 
-pDirectedP :: ParserS Primary
-pDirectedP = do
-    _ <- char '<'
-    _ <- many space
+        listOfVertices <- parseList int commaP lBracketP rBracketP 0
 
-    listOfVertices <- parseList int commaP lBracketP rBracketP 0
+        when (null listOfVertices) (fail "Empty list of vertices for graph.")
 
-    when (null listOfVertices) (fail "Empty list of vertices for graph.")
+        _ <- char ','
+        _ <- many space
 
-    _ <- char ','
-    _ <- many space
+        listOfEdges <- parseList tripleP commaP lBracketP rBracketP 0
 
-    listOfEdges <- parseList tripleP commaP lBracketP rBracketP 0
+        _ <- many space
+        _ <- char '>'
 
-    _ <- many space
-    _ <- char '>'
+        pure $ PDirected listOfVertices listOfEdges
+      where
+        commaP :: ParserS Char
+        commaP = betweenSpaces $ char ','
 
-    pure $ PDirected listOfVertices listOfEdges
-  where
-    commaP :: ParserS Char
-    commaP = betweenSpaces $ char ','
+        lBracketP :: ParserS Char
+        lBracketP = betweenSpaces $ char '['
 
-    lBracketP :: ParserS Char
-    lBracketP = betweenSpaces $ char '['
+        rBracketP :: ParserS Char
+        rBracketP = betweenSpaces $ char ']'
 
-    rBracketP :: ParserS Char
-    rBracketP = betweenSpaces $ char ']'
+        tripleP :: ParserS (Int, Int, Int)
+        tripleP = char '(' *> pure (,,)
+               <* many space <*> int <* many space <* char ','
+               <* many space <*> int <* many space <* char ','
+               <* many space <*> int <* many space <* char ')'
 
-    tripleP :: ParserS (Int, Int, Int)
-    tripleP = char '(' *> pure (,,)
-           <* many space <*> int <* many space <* char ','
-           <* many space <*> int <* many space <* char ','
-           <* many space <*> int <* many space <* char ')'
+    pDataP :: ParserS Primary
+    pDataP = PData <$> dataConstructorP <*> many (many space *> (primaryP <|> betweenBrackets1 expressionP))
+
+    pFuncCallP :: ParserS Primary
+    pFuncCallP =  PFuncCall
+              <$> funcNameP
+              <*> (betweenBrackets1 (((:) <$> expressionP <*> many (betweenSpaces (char ',') *> expressionP))
+              <|> pure []))
 
 varNameP :: ParserS VarName
 varNameP = do
@@ -189,17 +259,8 @@ keyWords = [ "in", "if", "then", "else", "let", "data" ]
 dataConstructorP :: ParserS DataConstructor
 dataConstructorP = (:) <$> satisfy isUpper <*> many (satisfy isAlphaNum)
 
-pDataP :: ParserS Primary
-pDataP = PData <$> dataConstructorP <*> many (many space *> (primaryP <|> betweenBrackets1 expressionP))
-
 funcNameP :: ParserS FuncName
 funcNameP = varNameP
-
-pFuncCallP :: ParserS Primary
-pFuncCallP =  PFuncCall
-          <$> funcNameP
-          <*> (betweenBrackets1 (((:) <$> expressionP <*> many (betweenSpaces (char ',') *> expressionP))
-          <|> pure []))
 
 dataTypeP :: ParserS DataType
 dataTypeP = dataConstructorP
@@ -231,90 +292,39 @@ notArrowP = intP <|> boolP <|> directedP <|> undirectedP <|> dataTypeP' <|> unit
 arrowP :: ParserS Type
 arrowP = foldr1 Arrow <$> ((:) <$> notArrowP <*> some (betweenSpaces (string "->") *> notArrowP))
 
-aDTP :: ParserS (DataType, [Constructor])
-aDTP =  (,)
-    <$> (string "data" *> betweenSpaces dataTypeP <* betweenSpaces (char '='))
-    <*> ((++) <$> many (constructorP <* betweenSpaces (char '|')) <*> (fmap pure constructorP))
-  where
-    constructorP :: ParserS Constructor
-    constructorP = Constructor <$> dataConstructorP <*> many (some space *> (notArrowP <|> betweenBrackets1 arrowP))
-
-functionP :: ParserS (FuncName, Func)
-functionP =  (,)
-         <$> funcNameP
-         <*> funcP
-  where
-    funcP :: ParserS Func
-    funcP =  Func
-         <$> betweenBrackets1 (((:) <$> funcArgP <*> many (char ',' *> betweenSpaces funcArgP)) <|> pure [])
-         <*> (betweenSpaces (char ':') *> typeP)
-         <*> (betweenSpaces (char '=') *> between (betweenSpaces (string "{")) (betweenSpaces (string "}")) expressionP)
-
-    funcArgP :: ParserS FuncArg
-    funcArgP = (uncurry PatternArg <$> patternMatchDataP) <|> (VarArg <$> pVarP)
-
-gradskellP :: ParserS GradskellAst
-gradskellP =  GradskellProgram
-          <$> (M.fromList <$> many (many space *> aDTP))
-          <*> (M.fromList . ungroups <$> many (many space *> functionP))
-          <*> (many space *> expressionP)
+--------------------------------------------------------------------------------
+-- Utility functions.
+--------------------------------------------------------------------------------
 
 ungroups :: (Eq a, Ord a) => [(a, b)] -> [(a, [b])]
 ungroups = fmap (\x -> (fst $ head x, fmap snd x)) . groupBy ((==) `on` fst) . sortOn fst
 
+betweenSpaces :: ParserS a -> ParserS a
+betweenSpaces = between (many space) (many space)
 
---------------------------------------------------------------------------------
--- Gradskell.
---------------------------------------------------------------------------------
+betweenSpaces1 :: ParserS a -> ParserS a
+betweenSpaces1 = between (some space) (some space)
 
-type VarName = String
+betweenBrackets :: ParserS a -> ParserS a
+betweenBrackets p = do
+    _        <- many space
+    bracketM <- peek
 
-type DataConstructor = String
+    case bracketM of
+      Just '(' -> char '(' *> betweenBrackets p <* many space <* char ')'
+      _        -> p
 
-data GradskellAst = GradskellProgram { dataTypes :: Map DataType [Constructor]
-                                     , functions :: Map FuncName [Func]
-                                     , program   :: Expression
-                                     }
-  deriving (Eq, Show)
-
-type DataType = String
-data Constructor = Constructor { constructor :: DataConstructor
-                               , argTypes    :: [Type]
-                               }
-  deriving (Eq, Show)
-data Type = Int | Bool | Directed | Undirected | DataType DataType | Arrow Type Type | Unit
-  deriving (Eq, Ord, Show)
-
-type FuncName = String
-data Func = Func [FuncArg] Type Body
-  deriving (Eq, Show)
-data FuncArg = VarArg Primary | PatternArg DataConstructor [Primary]
-  deriving (Eq, Show)
-type Body = Expression
-
-data Expression = ITE Expression Expression Expression
-                | LetVar Primary Expression Expression
-                | LetData DataConstructor [Primary] Expression Expression
-                | ArEx ArExpression
-                | Primary Primary
-  deriving (Eq, Show)
-
-data ArExpression = BinOp Operator Expression Expression
-                  | UnOp Operator Expression
-  deriving (Eq, Show)
-
-data Primary = PInt Int
-             | PBool Bool
-             | PDirected [Int] [(Int, Int, Int)]
-             | PUndirected [Int] [(Int, Int, Int)]
-             | PData DataConstructor [Expression]
-             | PVar VarName
-             | PFuncCall FuncName [Expression]
-  deriving (Eq, Show)
+betweenBrackets1 :: ParserS a -> ParserS a
+betweenBrackets1 p = char '(' *> many space *> betweenBrackets p <* many space <* char ')'
 
 --------------------------------------------------------------------------------
 -- Type checking.
 --------------------------------------------------------------------------------
+
+type ConstructorsMap = Map DataConstructor (Type, [Type])
+type FuncMap         = Map (FuncName, [Type]) Type
+type VarMap          = Map VarName Type
+type InferState      = StateT (VarMap, (ConstructorsMap, FuncMap)) (Either String)
 
 inferTypeForGradskellAst :: GradskellAst -> Either [String] Type
 inferTypeForGradskellAst GradskellProgram{..} = do
@@ -322,9 +332,6 @@ inferTypeForGradskellAst GradskellProgram{..} = do
     funcM  <- first pure $ getFunctionsMap constM functions
 
     bimap pure fst $ evalStateT (inferExpressionType program) (mempty, (constM, funcM))
-
-type ConstructorsMap = Map DataConstructor (Type, [Type])
-type FuncMap         = Map (FuncName, [(Type, Maybe DataConstructor)]) Type
 
 getConstructorsMap :: Map DataType [Constructor] -> Either [String] ConstructorsMap
 getConstructorsMap dataTypesM | null errorList                         = pure res
@@ -357,17 +364,21 @@ getConstructorsMap dataTypesM | null errorList                         = pure re
 eConcat :: [Either String ()] -> Either String ()
 eConcat = fmap (const ()) . sequence
 
-type VarMap = Map VarName Type
-type InferState = StateT (VarMap, (ConstructorsMap, FuncMap)) (Either String)
-
 getFunctionsMap :: Map DataConstructor (Type, [Type]) -> Map FuncName [Func] -> Either String FuncMap
 getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Duplicating functions names."
+                          | noOverrideOnReturnTypeCheck            = Left "No overriding on return type allowed."
                           | otherwise = sequence (checkFunctionType <$> concat (M.elems fM)) >> pure funcMap
   where
     forMap = concatMap (\(fN, fs) -> fmap (\(Func fArgs t _) -> first ((,) fN) $ typeToKey fArgs t) fs) $ M.toList fM
 
+    noOverrideOnReturnTypeCheck = any ((> 1) . length)
+                                $ fmap (nubBy ((==) `on` (\(_, _, z) -> z)))
+                                $ groupBy ((==) `on` (\(x, y, z) -> (x, y)))
+                                $ sortOn (\(x, y, z) -> (x, y))
+                                $ fmap (\(x, y) -> (fst x, fmap fst (snd x), y)) forMap
+
     funcMap :: FuncMap
-    funcMap = M.fromList forMap
+    funcMap = M.fromList $ fmap (first (fmap (fmap fst))) forMap
 
     typeToKey :: [FuncArg] -> Type -> ([(Type, Maybe DataConstructor)], Type)
     typeToKey fArgs fType = (zip argsT dCs, resT)
@@ -470,14 +481,10 @@ inferPrimary (PVar var)   = do
 inferPrimary (PFuncCall fName args) = do
     (_, funcM) <- fmap snd get
 
-    argsT      <- sequence $ fmap inferExpressionType args
+    argsT      <- fmap (fmap fst) $ sequence $ fmap inferExpressionType args
     let errorM = lift $ Left $ "No such function: " <> fName <> " with args of types " <> show argsT
 
-    let keyVariantsI = zip [0..] $ replicate (length argsT + 1) argsT
-    let keyVariants  = fmap (\(i, l) -> fmap (fmap (const Nothing)) (take i l) <> drop i l) keyVariantsI
-    let lookedUp     = foldl1 (<|>) $ fmap ((`M.lookup` funcM) . (,) fName) keyVariants
-
-    maybe errorM (lift . pure . flip (,) Nothing) lookedUp
+    maybe errorM (lift . pure . flip (,) Nothing) $ (fName, argsT) `M.lookup` funcM
 
 inferArExpression :: ArExpression -> InferState (Type, Maybe DataConstructor)
 inferArExpression (BinOp op e1 e2) = do
@@ -514,5 +521,3 @@ inferFail = lift . Left . ("Can't infer type of: " <>) . show
 
 findDataConstructor :: MonadTrans m => ConstructorsMap -> DataConstructor -> m (Either String) (Type, [Type])
 findDataConstructor m dc = maybe (lift $ Left $ "Constructor not found: " <> dc) (lift . pure) $ dc `M.lookup` m
-
-

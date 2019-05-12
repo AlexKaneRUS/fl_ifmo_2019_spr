@@ -17,9 +17,15 @@ main = do
   mapM_
     (\fileName -> do
         input <- readFile fileName
-        let a = undefined
-        putStrLn $ printf "Parsing %s\n" fileName
-        putStrLn ""
+        let parsingRes = runParserUntilEof gradskellP input
+
+        case parsingRes of
+          Right p -> do
+              putStrLn $ "Parsing result: " ++ show p ++ "\n"
+              case inferTypeForGradskellAst p of
+                Right r -> putStrLn $ "Inferred type: " ++ show r ++ "\n"
+                Left  s -> putStrLn $ "Can't infer type for file: " ++ fileName ++ "\n Reason: " ++ show s ++ "\n"
+          Left s  -> putStrLn $ "Can't parse file: " ++ fileName ++ "\n Reason: " ++ s ++ "\n"
     )
     fileNames
 
@@ -82,11 +88,14 @@ typeInfererTests = do
     putStrLn "Inferer test.\n"
 
     program2 <- readFile "test/program2.gs"
-    testInferer program2 "Simple gradskell program." Undirected
+    testInferer program2 "Simple gradskell program." (DataType "Graph")
 
     program3 <- readFile "test/program3.gs"
     testInferer program3 "Hard function named func." Bool
 
     program4 <- readFile "test/program4.gs"
-    testInferer program3 "Functions called from functions, zero arg function, choice of overriding function." Bool
+    testInferer program4 "Functions called from functions, zero arg function, choice of overriding function." Bool
+
+    program5 <- readFile "test/fib.gs"
+    testInferer program5 "Fibonacci numbers, recursion, functions called from functions, recursive data type." Int
 
