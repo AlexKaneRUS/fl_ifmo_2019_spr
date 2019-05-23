@@ -102,3 +102,6 @@ typeInfererTests = do
     program5 <- readFile "test/program5.gs"
     testInferer program5 "Pattern match for constructor with zero arguments." (DataType "Nat")
 
+    program6 <- readFile "test/program6.gs"
+    testInferer program6 "Tricky recursive calls." (DataType "ListNat")
+

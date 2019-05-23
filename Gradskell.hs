@@ -439,7 +439,7 @@ inferExpressionType e@(ITE cond th el) = do
     thT   <- inferExpressionType th
     elT   <- inferExpressionType el
 
-    if fst condT == Bool && thT == elT
+    if fst condT == Bool && fst thT == fst elT
       then pure thT
       else inferFail e
 inferExpressionType (LetVar (PVar x) val ex) = do
