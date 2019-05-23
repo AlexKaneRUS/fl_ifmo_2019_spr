@@ -168,6 +168,9 @@ digit = satisfy isDigit
 int :: Parser e Char Int
 int = read <$> some digit
 
+eol :: Parser e Char ()
+eol = () <$ satisfy (== '\n')
+
 string :: String -> Parser e Char String
 string []       = pure []
 string (x : xs) = (:) <$> satisfy (== x) <*> string xs
@@ -188,7 +191,10 @@ getInput :: Parser e a (Tokens a)
 getInput = Parser $ \str -> pure (str, str)
 
 peek :: Parser e a (Maybe a)
-peek = Parser $ \str ->pure (str, symbol <$> listToMaybe str)
+peek = listToMaybe <$> peekN 1
+
+peekN :: Int -> Parser e a [a]
+peekN n = Parser $ \str -> pure (str, symbol <$> take n str)
 
 setInput :: Tokens a -> Parser e a ()
 setInput str = Parser $ \_ -> pure (str, ())

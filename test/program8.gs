@@ -1,6 +1,9 @@
 data Nat = Z | S Nat 
 data List = Nil | Cons Nat List
 
-f(S Nil) : Nat -> Nat = { x } 
+f(Cons a (Cons x (Cons y Nil)), S (S Z)) : List -> Nat -> Nat = { 
+  y
+} 
 
-let r = f(Z) in r 
+let S (S (S x)) = f(Cons Z (Cons (S Z) (Cons Z Nil)), Z) in
+  f(Cons (S (S (S (S Z)))) (Cons (S Z) (Cons Z Nil)), x)

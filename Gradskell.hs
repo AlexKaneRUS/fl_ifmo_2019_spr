@@ -92,9 +92,9 @@ data Operator = Pow
 
 gradskellP :: ParserS GradskellAst
 gradskellP =  GradskellProgram
-          <$> (M.fromList <$> many (many space *> aDTP))
-          <*> (M.fromList . ungroups <$> many (many space *> functionP))
-          <*> (many space *> expressionP)
+          <$> (M.fromList <$> many (many spaceOrCommentaryP *> aDTP))
+          <*> (M.fromList . ungroups <$> many (many spaceOrCommentaryP *> functionP))
+          <*> (many spaceOrCommentaryP *> expressionP)
 
 aDTP :: ParserS (DataType, [Constructor])
 aDTP =  (,)
@@ -102,7 +102,7 @@ aDTP =  (,)
     <*> ((++) <$> many (constructorP <* betweenSpaces (char '|')) <*> (fmap pure constructorP))
   where
     constructorP :: ParserS Constructor
-    constructorP = Constructor <$> dataConstructorP <*> many (some space *> (notArrowP <|> betweenBrackets1 arrowP))
+    constructorP = Constructor <$> dataConstructorP <*> many (some spaceOrCommentaryP *> (notArrowP <|> betweenBrackets1 arrowP))
 
 functionP :: ParserS (FuncName, Func)
 functionP =  (,)
@@ -123,19 +123,19 @@ expressionP = betweenBrackets (iTEP <|> letVarP <|> letDataP <|> arExpressionP <
   where
     iTEP :: ParserS Expression
     iTEP =  ITE
-        <$> (string "if" *> some space *> expressionP)
-        <*> (some space *> string "then" *> some space *> expressionP)
-        <*> (some space *> string "else" *> some space *> expressionP)
+        <$> (string "if" *> some spaceOrCommentaryP *> expressionP)
+        <*> (some spaceOrCommentaryP *> string "then" *> some spaceOrCommentaryP *> expressionP)
+        <*> (some spaceOrCommentaryP *> string "else" *> some spaceOrCommentaryP *> expressionP)
 
     letVarP :: ParserS Expression
     letVarP =  LetVar
-           <$> (string "let" *> some space *> pVarP)
-           <*> (some space *> char '=' *> some space *> expressionP)
-           <*> (some space *> string "in" *> some space *> expressionP)
+           <$> (string "let" *> some spaceOrCommentaryP *> pVarP)
+           <*> (some spaceOrCommentaryP *> char '=' *> some spaceOrCommentaryP *> expressionP)
+           <*> (some spaceOrCommentaryP *> string "in" *> some spaceOrCommentaryP *> expressionP)
 
     letDataP :: ParserS Expression
     letDataP =  uncurry LetData
-            <$> (string "let" *> some space *> patternMatchDataP)
+            <$> (string "let" *> some spaceOrCommentaryP *> patternMatchDataP)
             <*> (betweenSpaces1 (char '=') *> expressionP)
             <*> (betweenSpaces1 (string "in") *> expressionP)
 
@@ -215,18 +215,18 @@ primaryP = Primary <$> primaryP'
     pDirectedP :: ParserS Primary
     pDirectedP = do
         _ <- char '<'
-        _ <- many space
+        _ <- many spaceOrCommentaryP
 
         listOfVertices <- parseList int commaP lBracketP rBracketP 0
 
         when (null listOfVertices) (fail "Empty list of vertices for graph.")
 
         _ <- char ','
-        _ <- many space
+        _ <- many spaceOrCommentaryP
 
         listOfEdges <- parseList tripleP commaP lBracketP rBracketP 0
 
-        _ <- many space
+        _ <- many spaceOrCommentaryP
         _ <- char '>'
 
         pure $ PDirected listOfVertices listOfEdges
@@ -242,12 +242,12 @@ primaryP = Primary <$> primaryP'
 
         tripleP :: ParserS (Int, Int, Int)
         tripleP = char '(' *> pure (,,)
-               <* many space <*> int <* many space <* char ','
-               <* many space <*> int <* many space <* char ','
-               <* many space <*> int <* many space <* char ')'
+               <* many spaceOrCommentaryP <*> int <* many spaceOrCommentaryP <* char ','
+               <* many spaceOrCommentaryP <*> int <* many spaceOrCommentaryP <* char ','
+               <* many spaceOrCommentaryP <*> int <* many spaceOrCommentaryP <* char ')'
 
     pDataP :: ParserS Primary
-    pDataP = PData <$> dataConstructorP <*> many (many space *> (fmap Primary primaryWithoutDataP <|> betweenBrackets1 expressionP))
+    pDataP = PData <$> dataConstructorP <*> many (many spaceOrCommentaryP *> (fmap Primary primaryWithoutDataP <|> betweenBrackets1 expressionP))
 
     pFuncCallP :: ParserS Primary
     pFuncCallP =  PFuncCall
@@ -300,6 +300,41 @@ notArrowP = intP <|> boolP <|> directedP <|> undirectedP <|> dataTypeP' <|> unit
 arrowP :: ParserS Type
 arrowP = foldr1 Arrow <$> ((:) <$> notArrowP <*> some (betweenSpaces (string "->") *> notArrowP))
 
+spaceOrCommentaryP :: ParserS String
+spaceOrCommentaryP = (pure <$> space) <|> commentaryP
+
+commentaryP :: ParserS String
+commentaryP = oneLineCommentaryP <|> manyLineCommentaryP
+  where
+    oneLineCommentaryP :: ParserS String
+    oneLineCommentaryP = (++) <$> string "--" <*> many (satisfy (/= '\n'))
+
+    manyLineCommentaryP :: ParserS String
+    manyLineCommentaryP = do
+        st <- openP
+        t  <- textP <|> pure ""
+
+        mlc <- manyLineCommentaryP <|> pure ""
+
+        t'  <- textP <|> pure ""
+        en <- closeP
+
+        pure $ concat [st, t, mlc, t', en]
+      where
+        openP :: ParserS String
+        openP = string "{-"
+
+        closeP :: ParserS String
+        closeP = string "-}"
+
+        textP :: ParserS String
+        textP = do
+            ab <- peekN 2
+
+            if ab == "{-" || ab == "-}"
+              then pure ""
+              else (:) <$> anyChar <*> textP
+
 --------------------------------------------------------------------------------
 -- Utility functions.
 --------------------------------------------------------------------------------
@@ -308,22 +343,22 @@ ungroups :: (Eq a, Ord a) => [(a, b)] -> [(a, [b])]
 ungroups = fmap (\x -> (fst $ head x, fmap snd x)) . groupBy ((==) `on` fst) . sortOn fst
 
 betweenSpaces :: ParserS a -> ParserS a
-betweenSpaces = between (many space) (many space)
+betweenSpaces = between (concat <$> many spaceOrCommentaryP) (concat <$> many spaceOrCommentaryP)
 
 betweenSpaces1 :: ParserS a -> ParserS a
-betweenSpaces1 = between (some space) (some space)
+betweenSpaces1 = between (concat <$> some spaceOrCommentaryP) (concat <$> some spaceOrCommentaryP)
 
 betweenBrackets :: ParserS a -> ParserS a
 betweenBrackets p = do
-    _        <- many space
+    _        <- many spaceOrCommentaryP
     bracketM <- peek
 
     case bracketM of
-      Just '(' -> char '(' *> betweenBrackets p <* many space <* char ')'
+      Just '(' -> char '(' *> betweenBrackets p <* many spaceOrCommentaryP <* char ')'
       _        -> p
 
 betweenBrackets1 :: ParserS a -> ParserS a
-betweenBrackets1 p = char '(' *> many space *> betweenBrackets p <* many space <* char ')'
+betweenBrackets1 p = char '(' *> many spaceOrCommentaryP *> betweenBrackets p <* many spaceOrCommentaryP <* char ')'
 
 --------------------------------------------------------------------------------
 -- Type checking.

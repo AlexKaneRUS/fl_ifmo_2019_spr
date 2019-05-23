@@ -83,13 +83,24 @@ parserTests = do
     let patternMatchInArgs = ("myCoolFunction",Func [PatternArg "MyType" [PVar "x",PVar "y"],VarArg (PVar "a"),PatternArg "MyT" [PVar "a",PVar "b",PVar "c",PVar "d",PVar "e"]] (Arrow (DataType "MyType") (Arrow (DataType "A") (Arrow (Arrow (DataType "A") (DataType "B")) (DataType "C")))) (LetVar (PVar "x") (Primary (PInt 10)) (LetData "TT" [PVar "a"] (ArEx (BinOp Sum (Primary (PVar "a")) (Primary (PVar "b")))) (ArEx (BinOp Minus (Primary (PVar "x")) (Primary (PVar "y")))))))
     testParser functionP "myCoolFunction(MyType x y, a, MyT a b c d e): MyType -> A -> (A -> B) -> C = { let x = 10 in let TT a = a + b in x - y }" patternMatchInArgs
 
+    let oneLineCommentary = ["-- here there","\n","-- and everywhere","\n"," "," ","--aaaaaa"]
+    testParser (many spaceOrCommentaryP) "-- here there\n-- and everywhere\n  --aaaaaa" oneLineCommentary
+
+    let manyLineCommentary = ["{- this is very {- complex function {- that is very good \n looking {-\n but here-} cccc-}-}   dddddd -}"]
+    testParser (many commentaryP) "{- this is very {- complex function {- that is very good \n looking {-\n but here-} cccc-}-}   dddddd -}" manyLineCommentary
+
     let program = GradskellProgram (M.fromList [("Pair",[Constructor "PairU" [Undirected,Undirected],Constructor "PairD" [Directed,Directed]])]) (M.fromList [("min",[Func [PatternArg "PairU" [PVar "graphA",PVar "graphB"]] (Arrow (DataType "Pair") Bool) (ITE (ArEx (BinOp Lt (Primary (PVar "graphA")) (Primary (PVar "graphB")))) (Primary (PVar "graphA")) (Primary (PVar "graphB"))),Func [PatternArg "PairD" [PVar "graphA",PVar "graphB"]] (Arrow (DataType "Pair") Bool) (ITE (ArEx (BinOp Lt (Primary (PVar "graphA")) (Primary (PVar "graphB")))) (Primary (PVar "graphA")) (Primary (PVar "graphB")))])]) (LetVar (PVar "graphA") (Primary (PDirected [1,2,3] [(1,2,0),(2,0,0)])) (LetVar (PVar "graphB") (Primary (PDirected [1,2] [(1,0,0)])) (Primary (PFuncCall "min" [Primary (PData "PairU" [Primary (PVar "graphA"),Primary (PVar "graphB")])]))))
+
     programS    <- readFile "test/program.gs"
     testParser gradskellP programS program
 
     let program1 = GradskellProgram {dataTypes = M.fromList [("C",[Constructor "C" []]),("List",[Constructor "Nil" [],Constructor "Cons" [DataType "Pair",DataType "List"]]),("Pair",[Constructor "PairU" [Undirected,Undirected],Constructor "PairD" [Directed,Directed]]),("Pair2",[Constructor "Pair2U" [Undirected,Undirected],Constructor "PairDU" [Directed,Directed]])], functions = M.fromList [], program = LetVar (PVar "graphA") (Primary (PDirected [1,2,3] [(1,2,0),(2,0,0)])) (LetVar (PVar "graphB") (Primary (PDirected [1,2] [(1,0,0)])) (Primary (PData "C" [])))}
     programS    <- readFile "test/program1.gs"
     testParser gradskellP programS program1
+
+    let commentary1 = GradskellProgram {dataTypes = M.fromList [("ListNat",[Constructor {constructor = "Nil", argTypes = []},Constructor {constructor = "Cons", argTypes = [DataType "Nat",DataType "ListNat"]}]),("MaybeNat",[Constructor {constructor = "Nothing", argTypes = []},Constructor {constructor = "Just", argTypes = [DataType "Nat"]}]),("Nat",[Constructor {constructor = "Z", argTypes = []},Constructor {constructor = "S", argTypes = [DataType "Nat"]}])], functions = M.fromList [("f",[Func [VarArg (PVar "x")] (Arrow (DataType "Nat") (DataType "Nat")) (Primary (PVar "x"))]),("pred",[Func [PatternArg "Z" []] (Arrow (DataType "Nat") (DataType "MaybeNat")) (Primary (PData "Nothing" [])),Func [PatternArg "S" [PVar "x"]] (Arrow (DataType "Nat") (DataType "MaybeNat")) (ITE (ArEx (BinOp Gt (Primary (PInt 2)) (Primary (PInt 6)))) (Primary (PData "Nothing" [])) (Primary (PData "Just" [Primary (PVar "x")])))]),("succ",[Func [VarArg (PVar "x")] (Arrow (DataType "Nat") (DataType "Nat")) (Primary (PData "S" [Primary (PVar "x")]))])], program = LetVar (PVar "z") (Primary (PFuncCall "succ" [Primary (PData "Z" [])])) (ArEx (BinOp Sum (Primary (PVar "z")) (Primary (PInt 3))))}
+    commentary1S    <- readFile "test/commentary1.gs"
+    testParser gradskellP commentary1S commentary1
 
 testInferer :: String -> String -> Type -> IO ()
 testInferer s s' t = if (join $ inferTypeForGradskellAst <$> first (const []) (parse (gradskellP <* eof) s)) == Right t then putStrLn $ "OK: " ++ s'
