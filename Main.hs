@@ -81,7 +81,7 @@ parserTests = do
 
 testInferer :: String -> String -> Type -> IO ()
 testInferer s s' t = if (join $ inferTypeForGradskellAst <$> first (const []) (parse (gradskellP <* eof) s)) == Right t then putStrLn $ "OK: " ++ s'
-                  else putStrLn $ "FAIL: " ++ s'
+                     else putStrLn $ "FAIL: " ++ s'
 
 typeInfererTests :: IO ()
 typeInfererTests = do
@@ -96,6 +96,9 @@ typeInfererTests = do
     program4 <- readFile "test/program4.gs"
     testInferer program4 "Functions called from functions, zero arg function, choice of overriding function." Bool
 
-    program5 <- readFile "test/fib.gs"
-    testInferer program5 "Fibonacci numbers, recursion, functions called from functions, recursive data type." Int
+    fib <- readFile "test/fib.gs"
+    testInferer fib "Fibonacci numbers, recursion, functions called from functions, recursive data type." Int
+
+    program5 <- readFile "test/program5.gs"
+    testInferer program5 "Pattern match for constructor with zero arguments." (DataType "Nat")
 

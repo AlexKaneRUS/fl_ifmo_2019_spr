@@ -180,7 +180,7 @@ expressionP = betweenBrackets (iTEP <|> letVarP <|> letDataP <|> arExpressionP <
 patternMatchDataP :: ParserS (DataConstructor, [Primary])
 patternMatchDataP =  (,)
                  <$> dataConstructorP
-                 <*> (some space *> some (many space *> pVarP))
+                 <*> ((some space *> some (many space *> pVarP)) <|> pure [])
 
 pVarP :: ParserS Primary
 pVarP = fmap PVar varNameP
