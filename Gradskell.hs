@@ -5,8 +5,7 @@ module Gradskell where
 import           Combinators                  hiding (error)
 import           Control.Applicative          (many, some, (<|>))
 import           Control.Monad                (when)
-import           Control.Monad.State          (StateT (..), evalStateT, get,
-                                               modify)
+import           Control.Monad.State
 import           Control.Monad.Trans.Class    (MonadTrans, lift)
 import           Control.Monad.Trans.Identity (runIdentityT)
 import           Data.Bifunctor               (bimap, first)
@@ -443,14 +442,14 @@ inferExpressionType e@(ITE cond th el) = do
       then pure thT
       else inferFail e
 inferExpressionType (LetVar (PVar x) val ex) = do
-    (valT, _) <- inferExpressionType val
+    (valT, _) <- inferStateLoc $ inferExpressionType val
     modify (first (M.insert x valT))
     inferExpressionType ex
 inferExpressionType e'@(LetData dc vars e ex) = do
     (constM, _) <- fmap snd get
 
     dcT <- fst <$> findDataConstructor constM dc
-    eT  <- inferExpressionType e
+    eT  <- inferStateLoc $ inferExpressionType e
 
     if ((dcT, pure dc) == eT || snd eT == Nothing && dcT == fst eT) && length vars == length (snd $ constM M.! dc)
       then do
@@ -469,7 +468,7 @@ inferPrimary (PData dc args)   = do
     (constM, _) <- fmap snd get
 
     (dcT, dcArgsT) <- findDataConstructor constM dc
-    argsT          <- fmap (fmap fst) $ sequence $ fmap inferExpressionType args
+    argsT          <- fmap (fmap fst) $ sequence $ fmap (inferStateLoc . inferExpressionType) args
 
     if dcArgsT == argsT
       then pure (dcT, pure dc)
@@ -481,10 +480,17 @@ inferPrimary (PVar var)   = do
 inferPrimary (PFuncCall fName args) = do
     (_, funcM) <- fmap snd get
 
-    argsT      <- fmap (fmap fst) $ sequence $ fmap inferExpressionType args
+    argsT      <- fmap (fmap fst) $ sequence $ fmap (inferStateLoc . inferExpressionType) args
     let errorM = lift $ Left $ "No such function: " <> fName <> " with args of types " <> show argsT
 
     maybe errorM (lift . pure . flip (,) Nothing) $ (fName, argsT) `M.lookup` funcM
+
+inferStateLoc :: InferState a -> InferState a
+inferStateLoc is = do
+    st <- get
+    case evalStateT is st of
+      Left er   -> lift . Left $ er
+      Right res -> pure res
 
 inferArExpression :: ArExpression -> InferState (Type, Maybe DataConstructor)
 inferArExpression (BinOp op e1 e2) = do
