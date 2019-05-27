@@ -17,7 +17,6 @@ import           Data.List                    (groupBy, nub, nubBy, sortOn)
 import qualified Data.List                    as L
 import           Data.Map.Strict              (Map)
 import qualified Data.Map.Strict              as M
-import           Data.Maybe                   (fromJust)
 import           Data.Semigroup               ((<>))
 import           Text.Printf
 
@@ -184,12 +183,7 @@ expressionP = betweenBrackets (iTEP <|> letVarP <|> letDataP <|> arExpressionP <
 patternMatchDataP :: ParserS (DataConstructor, [Primary])
 patternMatchDataP =  (,)
                  <$> dataConstructorP
-                 <*> ((some space *> some (many space *> (pVarP
-                 <|> (helper <$> (betweenBrackets1 patternMatchDataP <|> (flip (,) [] <$> dataConstructorP))))))
-                 <|> pure [])
-  where
-    helper :: (DataConstructor, [Primary]) -> Primary
-    helper (dc, exs) = PData dc (fmap Primary exs)
+                 <*> ((some spaceOrCommentaryP *> some (many spaceOrCommentaryP *> pVarP)) <|> pure [])
 
 pVarP :: ParserS Primary
 pVarP = fmap PVar varNameP
@@ -212,9 +206,6 @@ primaryP = Primary <$> primaryP'
   where
     primaryP' :: ParserS Primary
     primaryP' = pIntP <|> pBoolP <|> pUndirectedP <|> pDirectedP <|> pDataP <|> pFuncCallP <|> pVarP
-
-    primaryWithoutDataP :: ParserS Primary
-    primaryWithoutDataP = pIntP <|> pBoolP <|> pUndirectedP <|> pDirectedP <|> pFuncCallP <|> pVarP <|> (flip PData [] <$> dataConstructorP)
 
     pIntP :: ParserS Primary
     pIntP = fmap PInt int
@@ -264,7 +255,7 @@ primaryP = Primary <$> primaryP'
                <* many spaceOrCommentaryP <*> int <* many spaceOrCommentaryP <* char ')'
 
     pDataP :: ParserS Primary
-    pDataP = PData <$> dataConstructorP <*> many (many spaceOrCommentaryP *> (fmap Primary primaryWithoutDataP <|> betweenBrackets1 expressionP))
+    pDataP = PData <$> dataConstructorP <*> many (many spaceOrCommentaryP *> (primaryP <|> betweenBrackets1 expressionP))
 
     pFuncCallP :: ParserS Primary
     pFuncCallP =  PFuncCall
@@ -413,25 +404,21 @@ getSubstitution :: Type -> Type -> InferState ()
 getSubstitution (DataType n l) (DataType n' l') | n == n' && length l == length l' = const () <$> zipWithM getSubstitution l l'
                                                 | otherwise = lift . Left $ "Different length in data types: " <> n <> " and " <> n'
 getSubstitution (Arrow l r) (Arrow l' r') = getSubstitution l l' >> getSubstitution r r'
-getSubstitution x y | not (isTVar x) && isTVar y = getSubstitution x y
+getSubstitution x y | not (isTVar x) && isTVar y = lift . Left $ "Can't match " <> show x <> " with " <> show y
                     | TVar x' <- x               = do
                         ((_, m), _) <- get
 
                         let tVal = x' `M.lookup` m
-                        if checkVal tVal
-                          then getSubstitution (fromJust tVal) y
-                          else
-                            if isTVar y && not (null tVal)
-                              then getSubstitution y (fromJust tVal)
-                              else do
-                                  modify (first $ second $ fmap (substitute x y))
-                                  modify (first $ second $ M.insert x' y)
-                                  allSubsInVars
+                        when (checkVal tVal) (lift . Left $ "Dublicating value for type var " <> show x)
+
+                        modify (first $ second $ fmap (substitute x y))
+                        modify (first $ second $ M.insert x' y)
+                        allSubsInVars
                     | x == y              = pure ()
                     | otherwise           = lift . Left $ "Different types: " <> show x <> " and " <> show y
   where
     checkVal :: Maybe Type -> Bool
-    checkVal (Just x') = not (isTVar x') && x' /= y && not (isTVar y)
+    checkVal (Just x') = not (isTVar x') && x' /= y
     checkVal _         = False
 
 substitute :: Type -> Type -> Type -> Type
@@ -493,7 +480,7 @@ getConstructorsMap dataTypesM | null errorList                         = pure re
 
 freshenConst :: (Type, [Type]) -> InferState (Type, [Type])
 freshenConst (t, ts) = do
-    ns                  <- fmap (snd . snd) get
+    ns             <- fmap (snd . snd) get
     let (t' : ts', ns') = freshVariablesForTypes ns $ t : ts
     modify (second $ second $ const ns')
     pure (t', ts')
@@ -504,17 +491,14 @@ eConcat = fmap (const ()) . sequence
 subType :: TypeContext -> Type -> Type
 subType m t = foldl (\t' (x, x') -> substitute (TVar x) x' t') t $ M.toList m
 
-freshenFunc :: (Type, [Type]) -> InferState (Type, [Type])
-freshenFunc = freshenConst
-
-getFunctionsMap :: Map DataConstructor (Type, [Type]) -> Map FuncName [Func] -> Either String FuncMap
+getFunctionsMap :: Map DataConstructor (Type, [Type]) -> Map FuncName [Func] -> InferState FuncMap
 getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Duplicating functions names."
                           | noOverrideOnReturnTypeCheck            = Left "No overriding on return type allowed."
                           | otherwise = sequence (checkFunctionType <$> funcs) >> pure funcMap
   where
     forMap = concatMap (\(fN, fs) -> fmap (\(Func fArgs t _) -> first ((,) fN) $ typeToKey fArgs t) fs) $ M.toList fM
 
-    funcs = concat $ M.elems fM
+    funcs = transformFTs $ concat $ M.elems fM
 
     noOverrideOnReturnTypeCheck = any ((> 1) . length)
                                 $ fmap (nubBy ((==) `on` (\(_, _, z) -> z)))
@@ -523,6 +507,13 @@ getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Dupli
                                 $ fmap (\(x, y) -> (fst x, fmap fst (snd x), y)) forMap
 
     dataTypes = fmap fst $ M.elems constM
+
+    freshenFunc :: Func -> InferState Func
+    freshenFunc (Func fArgs fType fBody) = do
+        ns             <- fmap (snd . snd) get
+        let (fType', ns') = freshVariablesForTypes ns fType
+        modify (second $ second $ const ns')
+        pure (Func fArgs fType' fBody)
 
     funcMap :: FuncMap
     funcMap = M.fromList $ fmap (first (fmap (fmap fst))) forMap
@@ -538,14 +529,13 @@ getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Dupli
         toDC VarArg{}          = Nothing
         toDC (PatternArg dc _) = Just dc
 
-    checkFunctionType :: Func -> Either String ()
+    checkFunctionType :: Func -> InferState ()
     checkFunctionType (Func fArgs fType fBody) = do
         when (any (not . typeExists) $ typeInArgs fType) $ Left $ "Unknown type in " <> show fType <> "."
         when (any isArrow argsT) (Left "Arguments of function can't be functions.")
 
-        t <- fmap fst $ flip evalStateT ((mempty, mempty), ((constM, funcMap), [1..])) $ do
-            matchArgs (fmap funcArgToPrimary fArgs) argsT
-            inferExpressionType fBody
+        varM                  <- argsToVars fArgs argsT
+        ((t, _), ((_, m), _)) <- runStateT (inferExpressionType fBody) ((varM, mempty), (constM, funcMap))
 
         if matchTypes t resT
           then pure ()
@@ -556,33 +546,35 @@ getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Dupli
         typeExists :: Type -> Bool
         typeExists t = t `elem` dataTypes || any (flip matchTypes t) dataTypes
 
-        funcArgToPrimary :: FuncArg -> Primary
-        funcArgToPrimary (VarArg p)           = p
-        funcArgToPrimary (PatternArg dc args) = PData dc (fmap Primary args)
+        isArrow :: Type -> Bool
+        isArrow (Arrow _ _) = True
+        isArrow _           = False
 
     typeInArgs :: Type -> [Type]
     typeInArgs (Arrow l r)     = typeInArgs l <> typeInArgs r
     typeInArgs (dt@DataType{}) = [dt]
     typeInArgs _               = []
 
+    splitToArgsAndRes :: Type -> ([Type], Type)
+    splitToArgsAndRes (Arrow l r) = first (l :) $ splitToArgsAndRes r
+    splitToArgsAndRes t           = ([], t)
 
-    argsToVars :: [FuncArg] -> [Type] -> InferState (Map VarName Type)
-    argsToVars fArgs argsT | length fArgs /= length argsT = lift $ Left "Wrong number of arguments for function."
-                           | otherwise = M.fromList . concat <$> zipWithM mapArg fArgs argsT
+    argsToVars :: [FuncArg] -> [Type] -> Either String (Map VarName Type)
+    argsToVars fArgs argsT | length fArgs /= length argsT = Left "Wrong number of arguments for function."
+                           | otherwise = M.fromList . concat <$> sequence (zipWith mapArg fArgs argsT)
       where
-        mapArg :: FuncArg -> Type -> InferState [(VarName, Type)]
-        mapArg (VarArg x) t           = pure [(fromPVar x, t)]
+        mapArg :: FuncArg -> Type -> Either String [(VarName, Type)]
+        mapArg (VarArg x) t           = Right [(fromPVar x, t)]
         mapArg (PatternArg dc vars) t = do
-          p              <- findDataConstructor constM dc
-          (t', argTypes) <- freshenConst p
+          (t', argTypes) <- fmap freshenConst $ runIdentityT $ findDataConstructor constM dc
 
-          when (not $ matchTypes t' t) $ lift . Left $ "Wrong constructor for type " <> show t <> "."
-          when (length argTypes /= length vars) $ lift . Left $ "Wrong number of arguments for pattern " <> show dc <> "."
+          when (not $ matchTypes t' t) $ Left $ "Wrong constructor for type " <> show t <> "."
+          when (length argTypes /= length vars) $ Left $ "Wrong number of arguments for pattern " <> show dc <> "."
 
           pure $ zip (fmap fromPVar vars) argTypes
 
 freshVariablesForTypes :: [Int] -> [Type] -> ([Type], [Int])
-freshVariablesForTypes inds tss = runState (helper tss) inds
+freshVariablesForTypes inds tss = helper tss inds
   where
     helper :: [Type] -> State [Int] [Type]
     helper ts = do
@@ -604,81 +596,37 @@ allVars (Arrow l r)    = nub $ allVars l ++ allVars r
 allVars (TVar x)       = [x]
 allVars _              = []
 
-splitToArgsAndRes :: Type -> ([Type], Type)
-splitToArgsAndRes (Arrow l r) = first (l :) $ splitToArgsAndRes r
-splitToArgsAndRes t           = ([], t)
-
-updateFuncsMap :: InferState ()
-updateFuncsMap = fmap (fst . fst) get >>= mapM_ helper . M.toList
-  where
-    helper :: (String, Type) -> InferState ()
-    helper (n, t) | isArrow t = modify (second $ first (fmap (M.insert (n, args) res)))
-                  | otherwise = pure ()
-      where
-        (args, res) = splitToArgsAndRes t
-
-isArrow :: Type -> Bool
-isArrow (Arrow _ _) = True
-isArrow _           = False
 
 inferExpressionType :: Expression -> InferState (Type, Maybe DataConstructor)
 inferExpressionType e@(ITE cond th el) = do
     condT <- inferExpressionType cond
     thT   <- inferExpressionType th
-    elT   <- inferExpressionType el
+    elT   <- trace (show thT) $ inferExpressionType el
 
     if fst condT == Bool && fst thT == fst elT
       then pure thT
       else inferFail e
 inferExpressionType (LetVar (PVar x) val ex) = do
-    (valT, _) <- inferStateLoc $ inferExpressionType val
-
+    (valT, _) <- inferExpressionType val
     modify (first (first (M.insert x valT)))
-    updateFuncsMap
     allSubsInVars
     inferExpressionType ex
 inferExpressionType e'@(LetData dc vars e ex) = do
-    (constM, _) <- fmap (fst . snd) get
+    (constM, _) <- fmap snd get
 
-    (dcT, dcts) <- findDataConstructor constM dc
-    eT          <- inferStateLoc $ inferExpressionType e
+    (dcT, dcArgsT) <- freshenConst <$> findDataConstructor constM dc
+    (eT, eDC)      <- inferExpressionType e
 
-    if ((dcT, pure dc) == eT || snd eT == Nothing && dcT == fst eT)
+    sub <- getSubstitution dcT eT
+
+    if (pure dc == eDC || null eDC) && length vars == length dcArgsT
       then do
-          matchArgs vars dcts
-          updateFuncsMap
+          modify (first (first $ M.union $ M.fromList $ zipWith (,) (fmap fromPVar vars) $ dcArgsT))
+          allSubsInVars
           inferExpressionType ex
       else inferFail e'
 inferExpressionType (Primary p) = inferPrimary p
 inferExpressionType (ArEx ae)   = inferArExpression ae
-
-matchArgs :: [Primary] -> [Type] -> InferState ()
-matchArgs ps ts | length ps /= length ts = lift $ Left $ "Arguments length mismatch in pattern-matching."
-                | otherwise              = zipWithM_ matchArg ps ts
-  where
-    isPattern:: Expression -> Bool
-    isPattern (Primary (PData _ _)) = True
-    isPattern (Primary (PVar _))    = True
-    isPattern _                     = False
-
-    toPrimary :: Expression -> Primary
-    toPrimary (Primary a) = a
-    toPrimary _           = error "Can't call toPrimary not on Primary."
-
-    matchArg :: Primary -> Type -> InferState ()
-    matchArg (PVar x) t = do
-        modify (first $ first (M.insert x t))
-        updateFuncsMap
-    matchArg p@(PData dc args) t = do
-        when (any (not . isPattern) args) $ lift . Left $ "Calculations in pattern-match."
-
-        ((constM, _), _) <- fmap snd get
-        (dcT, dcts)      <- findDataConstructor constM dc
-
-        if dcT == t
-          then matchArgs (fmap toPrimary args) dcts
-          else lift $ Left $ "pattern-match: Expected type " <> show dcT <> " but got " <> show t <> "."
-    matchArg p _ = lift . Left $ "Calculations in pattern-match."
 
 inferPrimary :: Primary -> InferState (Type, Maybe DataConstructor)
 inferPrimary (PInt _)          = pure (Int, Nothing)
@@ -686,39 +634,57 @@ inferPrimary (PBool _)         = pure (Bool, Nothing)
 inferPrimary (PDirected _ _)   = pure (Directed, Nothing)
 inferPrimary (PUndirected _ _) = pure (Undirected, Nothing)
 inferPrimary (PData dc args)   = inferStateLoc $ do
-    ((_, tvarM), ((constM, _), _)) <- get
+    ((_, tvarM), (constM, _)) <- get
 
-    (dcT, dcArgsT) <- findDataConstructor constM dc
-    argsT          <- fmap (fmap fst) $ sequence $ fmap (inferStateLoc . inferExpressionType) args
+    argsT          <- trace (show args) $ fmap (fmap fst) $ sequence $ fmap inferExpressionType args
+    (dcT, dcArgsT) <- freshenConst <$> findDataConstructor constM dc
 
-    if length dcArgsT == length argsT
+    if trace (show (dcArgsT, argsT)) $ length dcArgsT == length argsT
       then do
+          zipWithM substitutionForZip dcArgsT argsT
           tvarM' <- fmap (snd . fst) get
           pure (subType tvarM' dcT, pure dc)
       else lift $ Left $ "Invalid arguments for " <> dc
 inferPrimary (PVar var)   = do
-    ((varM, _), ((_, funcM), _)) <- get
+    (varM, tvarM) <- fmap fst get
 
     case var `M.lookup` varM of
-      Just found -> pure (found, Nothing)
-      Nothing    ->
-        case L.find ((== var) . fst . fst) $ M.toList funcM of
-          Just ((_, t1), t2) -> pure (foldr Arrow t2 t1, Nothing)
-          Nothing            -> lift $ Left $ "No scuh variable: " <> var
-inferPrimary (PFuncCall fName args) = do
-    ((_, funcM), _) <- fmap snd get
+      Nothing -> lift $ Left $ "No scuh variable: " <> var
+      Just x  -> pure $ (subType tvarM x, Nothing)
+inferPrimary (PFuncCall fName args) = inferStateLoc $ do
+    argsT <- fmap (fmap fst) $ sequence $ fmap inferExpressionType args
+    tvarM <- fmap (snd . fst) get
+    findFunction (fName, argsT)
+  where
+    findFunction :: (String, [Type]) -> InferState (Type, Maybe DataConstructor)
+    findFunction (fName, argsT) = do
+        funcM <- fmap (snd . snd) get
 
-    argsT      <- fmap (fmap fst) $ sequence $ fmap (inferStateLoc . inferExpressionType) args
-    let errorM = lift $ Left $ "No such function: " <> fName <> " with args of types " <> show argsT
+        let funcs  = M.toList funcM
+        let foundM = L.find (\((n, ts), _) -> n == fName && length ts == length argsT && and (zipWith matchTypes ts argsT)) funcs
 
-    maybe errorM (lift . pure . flip (,) Nothing) $ (fName, argsT) `M.lookup` funcM
+        case foundM of
+          Nothing               -> lift $ Left $ "No such function: " <> fName <> " with args of types " <> show argsT
+          Just ((_, ts), resT)  -> do
+              zipWithM substitutionForZip ts argsT
+              tvarM <- fmap (snd . fst) get
+              pure (subType tvarM resT, Nothing)
+
+substitutionForZip :: Type -> Type -> InferState ()
+substitutionForZip t t' = do
+    tvarM <- fmap (snd . fst) get
+    getSubstitution t (subType tvarM t')
 
 inferStateLoc :: InferState a -> InferState a
 inferStateLoc is = do
     st <- get
-    case evalStateT is st of
+    case runStateT is st of
       Left er   -> lift . Left $ er
-      Right res -> pure res
+      Right (res, st') -> do
+          let ((_, tvarM), _) = st'
+
+          modify (first $ first $ fmap (subType tvarM))
+          pure res
 
 inferArExpression :: ArExpression -> InferState (Type, Maybe DataConstructor)
 inferArExpression (BinOp op e1 e2) = do

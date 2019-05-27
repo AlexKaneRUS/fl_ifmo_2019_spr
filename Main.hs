@@ -33,7 +33,7 @@ main = do
   putStrLn ""
   typeInfererTests
 
-testParser :: Eq a => ParserS a -> String -> a -> IO ()
+testParser :: (Show a, Eq a) => ParserS a -> String -> a -> IO ()
 testParser p s ast = if parse (p <* eof) s == Right ast then putStrLn $ "OK: " ++ s
                      else putStrLn $ "FAIL: " ++ s
 
@@ -56,22 +56,28 @@ parserTests = do
     let simpleType = Int
     testParser typeP "Int" simpleType
 
-    let hardType = Arrow (Arrow Int Int) (Arrow Bool (Arrow Directed (Arrow Undirected (DataType "MyType"))))
+    let hardType = Arrow (Arrow Int Int) (Arrow Bool (Arrow Directed (Arrow Undirected (DataType "MyType" []))))
     testParser typeP "(       Int     -> Int ) -> Bool    -> (Directed -> Undirected -> (MyType))" hardType
 
-    let hardADT = ("MyType",[Constructor "AAA" [Bool],Constructor "BBBB" [Int,Bool,Arrow Int (Arrow Bool Undirected)],Constructor "CCCC" [],Constructor "EEEE" [Arrow (DataType "A") (Arrow (DataType "B") (DataType "C"))]])
+    let hardADT = (DataType "MyType" [],[Constructor "AAA" [Bool],Constructor "BBBB" [Int,Bool,Arrow Int (Arrow Bool Undirected)],Constructor "CCCC" [],Constructor "EEEE" [Arrow (DataType "A" []) (Arrow (DataType "B" []) (DataType "C" []))]])
     testParser aDTP "data MyType = AAA Bool |   BBBB Int Bool (Int -> Bool -> Undirected)| CCCC | EEEE (A -> B -> C)" hardADT
+
+    let polymorphicADT = (DataType "MyType" [TVar "a",TVar "b",TVar "c"],[Constructor {constructor = "Middle", argTypes = [Arrow (DataType "Love" [TVar "c"]) (Arrow (TVar "a") (DataType "Love" [TVar "am",TVar "b",TVar "c"]))]}])
+    testParser aDTP "data MyType a b c = Middle ((Love c) -> a -> Love am b c)" polymorphicADT
+
+    let polymorphicADTHard = (DataType "MyType" [TVar "a",TVar "b",TVar "c"],[Constructor {constructor = "Left", argTypes = [TVar "a"]},Constructor {constructor = "Right", argTypes = [TVar "b"]},Constructor {constructor = "Middle", argTypes = [DataType "MyType" [TVar "a"],TVar "b",TVar "c",Arrow (DataType "Love" [TVar "b",TVar "c",TVar "d"]) (TVar "am")]},Constructor {constructor = "RightRight", argTypes = [TVar "c"]}])
+    testParser aDTP "data MyType a b c = Left a | Right b | Middle (MyType a) b c ((Love b c d) -> am) | RightRight c" polymorphicADTHard
 
     let simpleFunc = ("f",Func [VarArg (PVar "x"),VarArg (PVar "y")] (Arrow Int (Arrow Bool Int)) (ArEx (BinOp Gt (ArEx (BinOp Sum (Primary (PVar "x")) (Primary (PVar "y")))) (Primary (PInt 0)))))
     testParser functionP "f(x, y): Int -> Bool -> Int = { x + y > 0 }" simpleFunc
 
-    let noArgsFunc = ("f",Func [] (Arrow Int (Arrow Bool (Arrow Int (Arrow (Arrow (DataType "A") (DataType "B")) (DataType "C"))))) (LetVar (PVar "x") (Primary (PInt 10)) (ArEx (BinOp Div (Primary (PVar "x")) (Primary (PVar "x"))))))
+    let noArgsFunc = ("f",Func [] (Arrow Int (Arrow Bool (Arrow Int (Arrow (Arrow (DataType "A" []) (DataType "B" [])) (DataType "C" []))))) (LetVar (PVar "x") (Primary (PInt 10)) (ArEx (BinOp Div (Primary (PVar "x")) (Primary (PVar "x"))))))
     testParser functionP "f(): Int -> Bool -> Int -> (A -> B) -> C = { let x = 10 in x / x }" noArgsFunc
 
-    let deepPatternMatchFunction = ("f",Func [PatternArg "A" [PVar "x",PData "B" [Primary (PData "C" [Primary (PVar "y"),Primary (PData "D" [])])]]] (DataType "A") (Primary (PVar "x")))
+    let deepPatternMatchFunction = ("f",Func [PatternArg "A" [PVar "x",PData "B" [Primary (PData "C" [Primary (PVar "y"),Primary (PData "D" [])])]]] (DataType "A" []) (Primary (PVar "x")))
     testParser functionP "f(A x (B (C y D))) : A = { x }" deepPatternMatchFunction
 
-    let deepPatternMatchFunction1 = ("f",Func [PatternArg "A" [PVar "x",PData "B" [Primary (PData "C" [Primary (PVar "y"),Primary (PData "D" [])])]],PatternArg "M" [PVar "x"],VarArg (PVar "y"),PatternArg "BBB" [PData "CCC" [Primary (PVar "x")],PData "DDD" [Primary (PVar "a")]]] (Arrow (DataType "A") (Arrow (DataType "D") (DataType "M"))) (Primary (PVar "x")))
+    let deepPatternMatchFunction1 = ("f",Func [PatternArg "A" [PVar "x",PData "B" [Primary (PData "C" [Primary (PVar "y"),Primary (PData "D" [])])]],PatternArg "M" [PVar "x"],VarArg (PVar "y"),PatternArg "BBB" [PData "CCC" [Primary (PVar "x")],PData "DDD" [Primary (PVar "a")]]] (Arrow (DataType "A" []) (Arrow (DataType "D" []) (DataType "M" []))) (Primary (PVar "x")))
     testParser functionP "f(A x (B (C y D)), M x, y, BBB (CCC x) (DDD a)) : A -> D -> M = { x }" deepPatternMatchFunction1
 
     let deepPatternMatchLet = LetData "A" [PVar "x",PData "B" [Primary (PData "C" [Primary (PVar "y"),Primary (PData "D" [])])]] (ArEx (BinOp Minus (ArEx (BinOp Sum (Primary (PVar "x")) (Primary (PVar "y")))) (Primary (PInt 1)))) (LetData "BBB" [PData "CCC" [Primary (PVar "x")],PData "DDD" [Primary (PVar "a")]] (Primary (PData "BBB" [Primary (PData "CCC" [Primary (PVar "x")]),Primary (PData "DDD" [Primary (PVar "a")])])) (ArEx (BinOp Minus (Primary (PVar "x")) (Primary (PVar "a")))))
@@ -80,7 +86,7 @@ parserTests = do
     let zeroArgumentDataConstructorFunctionCall = LetData "F" [PData "A" [Primary (PData "B" []),Primary (PVar "x")]] (Primary (PVar "y")) (Primary (PFuncCall "f" [Primary (PData "A" [Primary (PData "B" []),Primary (PVar "x")])]))
     testParser expressionP "let F (A B x) = y in f(A B x)" zeroArgumentDataConstructorFunctionCall
 
-    let patternMatchInArgs = ("myCoolFunction",Func [PatternArg "MyType" [PVar "x",PVar "y"],VarArg (PVar "a"),PatternArg "MyT" [PVar "a",PVar "b",PVar "c",PVar "d",PVar "e"]] (Arrow (DataType "MyType") (Arrow (DataType "A") (Arrow (Arrow (DataType "A") (DataType "B")) (DataType "C")))) (LetVar (PVar "x") (Primary (PInt 10)) (LetData "TT" [PVar "a"] (ArEx (BinOp Sum (Primary (PVar "a")) (Primary (PVar "b")))) (ArEx (BinOp Minus (Primary (PVar "x")) (Primary (PVar "y")))))))
+    let patternMatchInArgs = ("myCoolFunction",Func [PatternArg "MyType" [PVar "x",PVar "y"],VarArg (PVar "a"),PatternArg "MyT" [PVar "a",PVar "b",PVar "c",PVar "d",PVar "e"]] (Arrow (DataType "MyType" []) (Arrow (DataType "A" []) (Arrow (Arrow (DataType "A" []) (DataType "B" [])) (DataType "C" [])))) (LetVar (PVar "x") (Primary (PInt 10)) (LetData "TT" [PVar "a"] (ArEx (BinOp Sum (Primary (PVar "a")) (Primary (PVar "b")))) (ArEx (BinOp Minus (Primary (PVar "x")) (Primary (PVar "y")))))))
     testParser functionP "myCoolFunction(MyType x y, a, MyT a b c d e): MyType -> A -> (A -> B) -> C = { let x = 10 in let TT a = a + b in x - y }" patternMatchInArgs
 
     let oneLineCommentary = ["-- here there","\n","-- and everywhere","\n"," "," ","--aaaaaa"]
@@ -89,18 +95,22 @@ parserTests = do
     let manyLineCommentary = ["{- this is very {- complex function {- that is very good \n looking {-\n but here-} cccc-}-}   dddddd -}"]
     testParser (many commentaryP) "{- this is very {- complex function {- that is very good \n looking {-\n but here-} cccc-}-}   dddddd -}" manyLineCommentary
 
-    let program = GradskellProgram (M.fromList [("Pair",[Constructor "PairU" [Undirected,Undirected],Constructor "PairD" [Directed,Directed]])]) (M.fromList [("min",[Func [PatternArg "PairU" [PVar "graphA",PVar "graphB"]] (Arrow (DataType "Pair") Bool) (ITE (ArEx (BinOp Lt (Primary (PVar "graphA")) (Primary (PVar "graphB")))) (Primary (PVar "graphA")) (Primary (PVar "graphB"))),Func [PatternArg "PairD" [PVar "graphA",PVar "graphB"]] (Arrow (DataType "Pair") Bool) (ITE (ArEx (BinOp Lt (Primary (PVar "graphA")) (Primary (PVar "graphB")))) (Primary (PVar "graphA")) (Primary (PVar "graphB")))])]) (LetVar (PVar "graphA") (Primary (PDirected [1,2,3] [(1,2,0),(2,0,0)])) (LetVar (PVar "graphB") (Primary (PDirected [1,2] [(1,0,0)])) (Primary (PFuncCall "min" [Primary (PData "PairU" [Primary (PVar "graphA"),Primary (PVar "graphB")])]))))
+    let program = GradskellProgram (M.fromList [(DataType "Pair" [],[Constructor "PairU" [Undirected,Undirected],Constructor "PairD" [Directed,Directed]])]) (M.fromList [("min",[Func [PatternArg "PairU" [PVar "graphA",PVar "graphB"]] (Arrow (DataType "Pair" []) Bool) (ITE (ArEx (BinOp Lt (Primary (PVar "graphA")) (Primary (PVar "graphB")))) (Primary (PVar "graphA")) (Primary (PVar "graphB"))),Func [PatternArg "PairD" [PVar "graphA",PVar "graphB"]] (Arrow (DataType "Pair" []) Bool) (ITE (ArEx (BinOp Lt (Primary (PVar "graphA")) (Primary (PVar "graphB")))) (Primary (PVar "graphA")) (Primary (PVar "graphB")))])]) (LetVar (PVar "graphA") (Primary (PDirected [1,2,3] [(1,2,0),(2,0,0)])) (LetVar (PVar "graphB") (Primary (PDirected [1,2] [(1,0,0)])) (Primary (PFuncCall "min" [Primary (PData "PairU" [Primary (PVar "graphA"),Primary (PVar "graphB")])]))))
 
     programS    <- readFile "test/program.gs"
     testParser gradskellP programS program
 
-    let program1 = GradskellProgram {dataTypes = M.fromList [("C",[Constructor "C" []]),("List",[Constructor "Nil" [],Constructor "Cons" [DataType "Pair",DataType "List"]]),("Pair",[Constructor "PairU" [Undirected,Undirected],Constructor "PairD" [Directed,Directed]]),("Pair2",[Constructor "Pair2U" [Undirected,Undirected],Constructor "PairDU" [Directed,Directed]])], functions = M.fromList [], program = LetVar (PVar "graphA") (Primary (PDirected [1,2,3] [(1,2,0),(2,0,0)])) (LetVar (PVar "graphB") (Primary (PDirected [1,2] [(1,0,0)])) (Primary (PData "C" [])))}
+    let program1 = GradskellProgram {dataTypes = M.fromList [(DataType "C" [],[Constructor "C" []]),(DataType "List" [],[Constructor "Nil" [],Constructor "Cons" [DataType "Pair" [],DataType "List" []]]),(DataType "Pair" [],[Constructor "PairU" [Undirected,Undirected],Constructor "PairD" [Directed,Directed]]),(DataType "Pair2" [],[Constructor "Pair2U" [Undirected,Undirected],Constructor "PairDU" [Directed,Directed]])], functions = M.fromList [], program = LetVar (PVar "graphA") (Primary (PDirected [1,2,3] [(1,2,0),(2,0,0)])) (LetVar (PVar "graphB") (Primary (PDirected [1,2] [(1,0,0)])) (Primary (PData "C" [])))}
     programS    <- readFile "test/program1.gs"
     testParser gradskellP programS program1
 
-    let commentary1 = GradskellProgram {dataTypes = M.fromList [("ListNat",[Constructor {constructor = "Nil", argTypes = []},Constructor {constructor = "Cons", argTypes = [DataType "Nat",DataType "ListNat"]}]),("MaybeNat",[Constructor {constructor = "Nothing", argTypes = []},Constructor {constructor = "Just", argTypes = [DataType "Nat"]}]),("Nat",[Constructor {constructor = "Z", argTypes = []},Constructor {constructor = "S", argTypes = [DataType "Nat"]}])], functions = M.fromList [("f",[Func [VarArg (PVar "x")] (Arrow (DataType "Nat") (DataType "Nat")) (Primary (PVar "x"))]),("pred",[Func [PatternArg "Z" []] (Arrow (DataType "Nat") (DataType "MaybeNat")) (Primary (PData "Nothing" [])),Func [PatternArg "S" [PVar "x"]] (Arrow (DataType "Nat") (DataType "MaybeNat")) (ITE (ArEx (BinOp Gt (Primary (PInt 2)) (Primary (PInt 6)))) (Primary (PData "Nothing" [])) (Primary (PData "Just" [Primary (PVar "x")])))]),("succ",[Func [VarArg (PVar "x")] (Arrow (DataType "Nat") (DataType "Nat")) (Primary (PData "S" [Primary (PVar "x")]))])], program = LetVar (PVar "z") (Primary (PFuncCall "succ" [Primary (PData "Z" [])])) (ArEx (BinOp Sum (Primary (PVar "z")) (Primary (PInt 3))))}
+    let commentary1 = GradskellProgram {dataTypes = M.fromList [(DataType "ListNat" [],[Constructor {constructor = "Nil", argTypes = []},Constructor {constructor = "Cons", argTypes = [DataType "Nat" [],DataType "ListNat" []]}]),(DataType "MaybeNat" [],[Constructor {constructor = "Nothing", argTypes = []},Constructor {constructor = "Just", argTypes = [DataType "Nat" []]}]),(DataType "Nat" [],[Constructor {constructor = "Z", argTypes = []},Constructor {constructor = "S", argTypes = [DataType "Nat" []]}])], functions = M.fromList [("f",[Func [VarArg (PVar "x")] (Arrow (DataType "Nat" []) (DataType "Nat" [])) (Primary (PVar "x"))]),("pred",[Func [PatternArg "Z" []] (Arrow (DataType "Nat" []) (DataType "MaybeNat" [])) (Primary (PData "Nothing" [])),Func [PatternArg "S" [PVar "x"]] (Arrow (DataType "Nat" []) (DataType "MaybeNat" [])) (ITE (ArEx (BinOp Gt (Primary (PInt 2)) (Primary (PInt 6)))) (Primary (PData "Nothing" [])) (Primary (PData "Just" [Primary (PVar "x")])))]),("succ",[Func [VarArg (PVar "x")] (Arrow (DataType "Nat" []) (DataType "Nat" [])) (Primary (PData "S" [Primary (PVar "x")]))])], program = LetVar (PVar "z") (Primary (PFuncCall "succ" [Primary (PData "Z" [])])) (ArEx (BinOp Sum (Primary (PVar "z")) (Primary (PInt 3))))}
     commentary1S    <- readFile "test/commentary1.gs"
     testParser gradskellP commentary1S commentary1
+
+    let polymorphism1 = GradskellProgram {dataTypes = M.fromList [(DataType "Either" [TVar "a",TVar "b"],[Constructor {constructor = "Left", argTypes = [TVar "a"]},Constructor {constructor = "Right", argTypes = [TVar "b"]}]),(DataType "List" [TVar "a"],[Constructor {constructor = "Nil", argTypes = []},Constructor {constructor = "Cons", argTypes = [TVar "a",DataType "List" [TVar "a"]]}]),(DataType "Triple" [TVar "a",TVar "b"],[Constructor {constructor = "Triple", argTypes = [DataType "List" [Int],DataType "Either" [DataType "Either" [Bool,DataType "List" [Bool]],DataType "Triple" [Int,Bool]],DataType "List" [DataType "Either" [TVar "a",TVar "b"]]]}])], functions = M.fromList [("left",[Func [PatternArg "Left" [PVar "x"]] (Arrow (DataType "Either" [TVar "a",TVar "b"]) (TVar "a")) (Primary (PVar "x"))]),("right",[Func [PatternArg "Right" [PVar "x"]] (Arrow (DataType "Either" [TVar "a",TVar "b"]) (TVar "b")) (Primary (PVar "x"))]),("toTriple",[Func [VarArg (PVar "x"),VarArg (PVar "y"),VarArg (PVar "z"),VarArg (PVar "d")] (Arrow (DataType "List" [Int]) (Arrow (DataType "Either" [DataType "Either" [Bool,DataType "List" [Bool]],DataType "Triple" [Int,Bool]]) (Arrow (TVar "a") (Arrow (TVar "b") (DataType "Triple" [TVar "a",TVar "b"]))))) (Primary (PData "Triple" [Primary (PVar "x"),Primary (PVar "y"),Primary (PData "Cons" [Primary (PData "Left" [Primary (PVar "z")]),Primary (PData "Cons" [Primary (PData "Right" [Primary (PVar "d")]),Primary (PData "Nil" [])])])]))])], program = LetVar (PVar "x") (Primary (PFuncCall "toTriple" [Primary (PData "Cons" [Primary (PInt 1),Primary (PData "Nil" [])]),Primary (PData "Left" [Primary (PData "Right" [Primary (PData "Cons" [Primary (PBool True),Primary (PData "Nil" [])])])]),Primary (PInt 1),Primary (PDirected [1] [])])) (Primary (PVar "x"))}
+    polymorphism1S    <- readFile "test/polymorphism_parsing_1.gs"
+    testParser gradskellP polymorphism1S polymorphism1
 
 testInferer :: String -> String -> Type -> IO ()
 testInferer s s' t = if (join $ inferTypeForGradskellAst <$> first (const []) (parse (gradskellP <* eof) s)) == Right t then putStrLn $ "OK: " ++ s'
@@ -111,7 +121,7 @@ typeInfererTests = do
     putStrLn "Inferer test.\n"
 
     program2 <- readFile "test/program2.gs"
-    testInferer program2 "Simple gradskell program." (DataType "Graph")
+    testInferer program2 "Simple gradskell program." (DataType "Graph" [])
 
     program3 <- readFile "test/program3.gs"
     testInferer program3 "Hard function named func." Bool
@@ -123,13 +133,13 @@ typeInfererTests = do
     testInferer fib "Fibonacci numbers, recursion, functions called from functions, recursive data type." Int
 
     program5 <- readFile "test/program5.gs"
-    testInferer program5 "Pattern match for constructor with zero arguments." (DataType "Nat")
+    testInferer program5 "Pattern match for constructor with zero arguments." (DataType "Nat" [])
 
     program6 <- readFile "test/program6.gs"
-    testInferer program6 "Tricky recursive calls." (DataType "ListNat")
+    testInferer program6 "Tricky recursive calls." (DataType "ListNat" [])
 
     program7 <- readFile "test/program7.gs"
-    testInferer program7 "Functions as variables." (DataType "ListNat")
+    testInferer program7 "Functions as variables." (DataType "ListNat" [])
 
     program8 <- readFile "test/program8.gs"
-    testInferer program8 "Deep pattern match in function's arguments." (DataType "Nat")
+    testInferer program8 "Deep pattern match in function's arguments." (DataType "Nat" [])
