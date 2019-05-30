@@ -95,6 +95,9 @@ parserTests = do
     let manyLineCommentary = ["{- this is very {- complex function {- that is very good \n looking {-\n but here-} cccc-}-}   dddddd -}"]
     testParser (many commentaryP) "{- this is very {- complex function {- that is very good \n looking {-\n but here-} cccc-}-}   dddddd -}" manyLineCommentary
 
+    let notNestedCommentary = ["{- this is very complex function that is very good \n looking \n but here cccc-   dddddd -}"]
+    testParser (many notNestedCommentaryP) "{- this is very complex function that is very good \n looking \n but here cccc-   dddddd -}" notNestedCommentary
+
     let program = GradskellProgram (M.fromList [(DataType "Pair" [],[Constructor "PairU" [Undirected,Undirected],Constructor "PairD" [Directed,Directed]])]) (M.fromList [("min",[Func [PatternArg "PairU" [PVar "graphA",PVar "graphB"]] (Arrow (DataType "Pair" []) Bool) (ITE (ArEx (BinOp Lt (Primary (PVar "graphA")) (Primary (PVar "graphB")))) (Primary (PVar "graphA")) (Primary (PVar "graphB"))),Func [PatternArg "PairD" [PVar "graphA",PVar "graphB"]] (Arrow (DataType "Pair" []) Bool) (ITE (ArEx (BinOp Lt (Primary (PVar "graphA")) (Primary (PVar "graphB")))) (Primary (PVar "graphA")) (Primary (PVar "graphB")))])]) (LetVar (PVar "graphA") (Primary (PDirected [1,2,3] [(1,2,0),(2,0,0)])) (LetVar (PVar "graphB") (Primary (PDirected [1,2] [(1,0,0)])) (Primary (PFuncCall "min" [Primary (PData "PairU" [Primary (PVar "graphA"),Primary (PVar "graphB")])]))))
 
     programS    <- readFile "test/program.gs"
