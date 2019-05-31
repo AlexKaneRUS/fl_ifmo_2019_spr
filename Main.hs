@@ -68,6 +68,18 @@ parserTests = do
     let noArgsFunc = ("f",Func [] (Arrow Int (Arrow Bool (Arrow Int (Arrow (Arrow (DataType "A") (DataType "B")) (DataType "C"))))) (LetVar (PVar "x") (Primary (PInt 10)) (ArEx (BinOp Div (Primary (PVar "x")) (Primary (PVar "x"))))))
     testParser functionP "f(): Int -> Bool -> Int -> (A -> B) -> C = { let x = 10 in x / x }" noArgsFunc
 
+    let deepPatternMatchFunction = ("f",Func [PatternArg "A" [PVar "x",PData "B" [Primary (PData "C" [Primary (PVar "y"),Primary (PData "D" [])])]]] (DataType "A") (Primary (PVar "x")))
+    testParser functionP "f(A x (B (C y D))) : A = { x }" deepPatternMatchFunction
+
+    let deepPatternMatchFunction1 = ("f",Func [PatternArg "A" [PVar "x",PData "B" [Primary (PData "C" [Primary (PVar "y"),Primary (PData "D" [])])]],PatternArg "M" [PVar "x"],VarArg (PVar "y"),PatternArg "BBB" [PData "CCC" [Primary (PVar "x")],PData "DDD" [Primary (PVar "a")]]] (Arrow (DataType "A") (Arrow (DataType "D") (DataType "M"))) (Primary (PVar "x")))
+    testParser functionP "f(A x (B (C y D)), M x, y, BBB (CCC x) (DDD a)) : A -> D -> M = { x }" deepPatternMatchFunction1
+
+    let deepPatternMatchLet = LetData "A" [PVar "x",PData "B" [Primary (PData "C" [Primary (PVar "y"),Primary (PData "D" [])])]] (ArEx (BinOp Minus (ArEx (BinOp Sum (Primary (PVar "x")) (Primary (PVar "y")))) (Primary (PInt 1)))) (LetData "BBB" [PData "CCC" [Primary (PVar "x")],PData "DDD" [Primary (PVar "a")]] (Primary (PData "BBB" [Primary (PData "CCC" [Primary (PVar "x")]),Primary (PData "DDD" [Primary (PVar "a")])])) (ArEx (BinOp Minus (Primary (PVar "x")) (Primary (PVar "a")))))
+    testParser expressionP "let A x (B (C y D)) = x + y - 1 in let BBB (CCC x) (DDD a) = BBB (CCC x) (DDD a) in x - a" deepPatternMatchLet
+
+    let zeroArgumentDataConstructorFunctionCall = LetData "F" [PData "A" [Primary (PData "B" []),Primary (PVar "x")]] (Primary (PVar "y")) (Primary (PFuncCall "f" [Primary (PData "A" [Primary (PData "B" []),Primary (PVar "x")])]))
+    testParser expressionP "let F (A B x) = y in f(A B x)" zeroArgumentDataConstructorFunctionCall
+
     let patternMatchInArgs = ("myCoolFunction",Func [PatternArg "MyType" [PVar "x",PVar "y"],VarArg (PVar "a"),PatternArg "MyT" [PVar "a",PVar "b",PVar "c",PVar "d",PVar "e"]] (Arrow (DataType "MyType") (Arrow (DataType "A") (Arrow (Arrow (DataType "A") (DataType "B")) (DataType "C")))) (LetVar (PVar "x") (Primary (PInt 10)) (LetData "TT" [PVar "a"] (ArEx (BinOp Sum (Primary (PVar "a")) (Primary (PVar "b")))) (ArEx (BinOp Minus (Primary (PVar "x")) (Primary (PVar "y")))))))
     testParser functionP "myCoolFunction(MyType x y, a, MyT a b c d e): MyType -> A -> (A -> B) -> C = { let x = 10 in let TT a = a + b in x - y }" patternMatchInArgs
 
@@ -107,3 +119,6 @@ typeInfererTests = do
 
     program7 <- readFile "test/program7.gs"
     testInferer program7 "Functions as variables." (DataType "ListNat")
+
+    program8 <- readFile "test/program8.gs"
+    testInferer program8 "Deep pattern match in function's arguments." (DataType "Nat")

@@ -180,7 +180,12 @@ expressionP = betweenBrackets (iTEP <|> letVarP <|> letDataP <|> arExpressionP <
 patternMatchDataP :: ParserS (DataConstructor, [Primary])
 patternMatchDataP =  (,)
                  <$> dataConstructorP
-                 <*> ((some space *> some (many space *> pVarP)) <|> pure [])
+                 <*> ((some space *> some (many space *> (pVarP
+                 <|> (helper <$> (betweenBrackets1 patternMatchDataP <|> (flip (,) [] <$> dataConstructorP))))))
+                 <|> pure [])
+  where
+    helper :: (DataConstructor, [Primary]) -> Primary
+    helper (dc, exs) = PData dc (fmap Primary exs)
 
 pVarP :: ParserS Primary
 pVarP = fmap PVar varNameP
@@ -190,6 +195,9 @@ primaryP = Primary <$> primaryP'
   where
     primaryP' :: ParserS Primary
     primaryP' = pIntP <|> pBoolP <|> pUndirectedP <|> pDirectedP <|> pDataP <|> pFuncCallP <|> pVarP
+
+    primaryWithoutDataP :: ParserS Primary
+    primaryWithoutDataP = pIntP <|> pBoolP <|> pUndirectedP <|> pDirectedP <|> pFuncCallP <|> pVarP <|> (flip PData [] <$> dataConstructorP)
 
     pIntP :: ParserS Primary
     pIntP = fmap PInt int
@@ -239,7 +247,7 @@ primaryP = Primary <$> primaryP'
                <* many space <*> int <* many space <* char ')'
 
     pDataP :: ParserS Primary
-    pDataP = PData <$> dataConstructorP <*> many (many space *> (primaryP <|> betweenBrackets1 expressionP))
+    pDataP = PData <$> dataConstructorP <*> many (many space *> (fmap Primary primaryWithoutDataP <|> betweenBrackets1 expressionP))
 
     pFuncCallP :: ParserS Primary
     pFuncCallP =  PFuncCall
@@ -396,8 +404,9 @@ getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Dupli
         when (any (`notElem` (fmap fst $ M.elems constM)) $ typeInArgs fType) $ Left $ "Unknown type in " <> show fType <> "."
         when (any isArrow argsT) (Left "Arguments of function can't be functions.")
 
-        varM <- argsToVars fArgs argsT
-        t    <- fst <$> evalStateT (updateFuncsMap >> inferExpressionType fBody) (varM, (constM, funcMap))
+        t <- fmap fst $ flip evalStateT (mempty, (constM, funcMap)) $ do
+            matchArgs (fmap funcArgToPrimary fArgs) argsT
+            inferExpressionType fBody
 
         if t == resT
           then pure ()
@@ -409,6 +418,10 @@ getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Dupli
         typeInArgs (Arrow l r)     = typeInArgs l <> typeInArgs r
         typeInArgs (dt@DataType{}) = [dt]
         typeInArgs _               = []
+
+        funcArgToPrimary :: FuncArg -> Primary
+        funcArgToPrimary (VarArg p)           = p
+        funcArgToPrimary (PatternArg dc args) = PData dc (fmap Primary args)
 
     argsToVars :: [FuncArg] -> [Type] -> Either String (Map VarName Type)
     argsToVars fArgs argsT | length fArgs /= length argsT = Left "Wrong number of arguments for function."
@@ -459,20 +472,45 @@ inferExpressionType (LetVar (PVar x) val ex) = do
 inferExpressionType e'@(LetData dc vars e ex) = do
     (constM, _) <- fmap snd get
 
-    dcT <- fst <$> findDataConstructor constM dc
-    eT  <- inferStateLoc $ inferExpressionType e
+    (dcT, dcts) <- findDataConstructor constM dc
+    eT          <- inferStateLoc $ inferExpressionType e
 
-    if ((dcT, pure dc) == eT || snd eT == Nothing && dcT == fst eT) && length vars == length (snd $ constM M.! dc)
+    if ((dcT, pure dc) == eT || snd eT == Nothing && dcT == fst eT)
       then do
-          let varNames  = fmap fromPVar vars
-          let argsTypes = snd $ constM M.! dc
-
-          modify (first (M.union $ M.fromList $ zipWith (,) varNames $ argsTypes))
+          matchArgs vars dcts
           updateFuncsMap
           inferExpressionType ex
       else inferFail e'
 inferExpressionType (Primary p) = inferPrimary p
 inferExpressionType (ArEx ae)   = inferArExpression ae
+
+matchArgs :: [Primary] -> [Type] -> InferState ()
+matchArgs ps ts | length ps /= length ts = lift $ Left $ "Arguments length mismatch in pattern-matching."
+                | otherwise              = zipWithM_ matchArg ps ts
+  where
+    isPattern:: Expression -> Bool
+    isPattern (Primary (PData _ _)) = True
+    isPattern (Primary (PVar _))    = True
+    isPattern _                     = False
+
+    toPrimary :: Expression -> Primary
+    toPrimary (Primary a) = a
+    toPrimary _           = error "Can't call toPrimary not on Primary."
+
+    matchArg :: Primary -> Type -> InferState ()
+    matchArg (PVar x) t = do
+        modify (first (M.insert x t))
+        updateFuncsMap
+    matchArg p@(PData dc args) t = do
+        when (any (not . isPattern) args) $ lift . Left $ "Calculations in pattern-match."
+
+        (constM, _) <- fmap snd get
+        (dcT, dcts) <- findDataConstructor constM dc
+
+        if dcT == t
+          then matchArgs (fmap toPrimary args) dcts
+          else lift $ Left $ "pattern-match: Expected type " <> show dcT <> " but got " <> show t <> "."
+    matchArg p _ = lift . Left $ "Calculations in pattern-match."
 
 inferPrimary :: Primary -> InferState (Type, Maybe DataConstructor)
 inferPrimary (PInt _)          = pure (Int, Nothing)
