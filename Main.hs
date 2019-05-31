@@ -105,3 +105,5 @@ typeInfererTests = do
     program6 <- readFile "test/program6.gs"
     testInferer program6 "Tricky recursive calls." (DataType "ListNat")
 
+    program7 <- readFile "test/program7.gs"
+    testInferer program7 "Functions as variables." (DataType "ListNat")

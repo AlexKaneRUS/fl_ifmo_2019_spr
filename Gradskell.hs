@@ -8,12 +8,13 @@ import           Control.Monad                (when)
 import           Control.Monad.State
 import           Control.Monad.Trans.Class    (MonadTrans, lift)
 import           Control.Monad.Trans.Identity (runIdentityT)
-import           Data.Bifunctor               (bimap, first)
+import           Data.Bifunctor               (bimap, first, second)
 import           Data.Char                    (isAlphaNum, isDigit, isLower,
                                                isUpper)
 import           Data.Either                  (lefts)
 import           Data.Function                (on)
 import           Data.List                    (groupBy, nubBy, sortOn)
+import qualified Data.List                    as L (find)
 import           Data.Map.Strict              (Map)
 import qualified Data.Map.Strict              as M
 import           Data.Semigroup               ((<>))
@@ -396,7 +397,7 @@ getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Dupli
         when (any isArrow argsT) (Left "Arguments of function can't be functions.")
 
         varM <- argsToVars fArgs argsT
-        t    <- fst <$> evalStateT (inferExpressionType fBody) (varM, (constM, funcMap))
+        t    <- fst <$> evalStateT (updateFuncsMap >> inferExpressionType fBody) (varM, (constM, funcMap))
 
         if t == resT
           then pure ()
@@ -408,14 +409,6 @@ getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Dupli
         typeInArgs (Arrow l r)     = typeInArgs l <> typeInArgs r
         typeInArgs (dt@DataType{}) = [dt]
         typeInArgs _               = []
-
-        isArrow :: Type -> Bool
-        isArrow (Arrow _ _) = True
-        isArrow _           = False
-
-    splitToArgsAndRes :: Type -> ([Type], Type)
-    splitToArgsAndRes (Arrow l r) = first (l :) $ splitToArgsAndRes r
-    splitToArgsAndRes t           = ([], t)
 
     argsToVars :: [FuncArg] -> [Type] -> Either String (Map VarName Type)
     argsToVars fArgs argsT | length fArgs /= length argsT = Left "Wrong number of arguments for function."
@@ -431,6 +424,22 @@ getFunctionsMap constM fM | nubBy ((==) `on` fst) forMap /= forMap = Left "Dupli
 
           pure $ zip (fmap fromPVar vars) argTypes
 
+splitToArgsAndRes :: Type -> ([Type], Type)
+splitToArgsAndRes (Arrow l r) = first (l :) $ splitToArgsAndRes r
+splitToArgsAndRes t           = ([], t)
+
+updateFuncsMap :: InferState ()
+updateFuncsMap = fmap fst get >>= mapM_ helper . M.toList
+  where
+    helper :: (String, Type) -> InferState ()
+    helper (n, t) | isArrow t = modify (second (fmap (M.insert (n, args) res)))
+                  | otherwise = pure ()
+      where
+        (args, res) = splitToArgsAndRes t
+
+isArrow :: Type -> Bool
+isArrow (Arrow _ _) = True
+isArrow _           = False
 
 inferExpressionType :: Expression -> InferState (Type, Maybe DataConstructor)
 inferExpressionType e@(ITE cond th el) = do
@@ -443,7 +452,9 @@ inferExpressionType e@(ITE cond th el) = do
       else inferFail e
 inferExpressionType (LetVar (PVar x) val ex) = do
     (valT, _) <- inferStateLoc $ inferExpressionType val
+
     modify (first (M.insert x valT))
+    updateFuncsMap
     inferExpressionType ex
 inferExpressionType e'@(LetData dc vars e ex) = do
     (constM, _) <- fmap snd get
@@ -453,7 +464,11 @@ inferExpressionType e'@(LetData dc vars e ex) = do
 
     if ((dcT, pure dc) == eT || snd eT == Nothing && dcT == fst eT) && length vars == length (snd $ constM M.! dc)
       then do
-          modify (first (M.union $ M.fromList $ zipWith (,) (fmap fromPVar vars) $ snd $ constM M.! dc))
+          let varNames  = fmap fromPVar vars
+          let argsTypes = snd $ constM M.! dc
+
+          modify (first (M.union $ M.fromList $ zipWith (,) varNames $ argsTypes))
+          updateFuncsMap
           inferExpressionType ex
       else inferFail e'
 inferExpressionType (Primary p) = inferPrimary p
@@ -474,9 +489,14 @@ inferPrimary (PData dc args)   = do
       then pure (dcT, pure dc)
       else lift $ Left $ "Invalid arguments for " <> dc
 inferPrimary (PVar var)   = do
-    varM <- fmap fst get
+    (varM, (_, funcM)) <- get
 
-    maybe (lift $ Left $ "No scuh variable: " <> var) (lift . pure . flip (,) Nothing) $ var `M.lookup` varM
+    case var `M.lookup` varM of
+      Just found -> pure (found, Nothing)
+      Nothing    ->
+        case L.find ((== var) . fst . fst) $ M.toList funcM of
+          Just ((_, t1), t2) -> pure (foldr Arrow t2 t1, Nothing)
+          Nothing            -> lift $ Left $ "No scuh variable: " <> var
 inferPrimary (PFuncCall fName args) = do
     (_, funcM) <- fmap snd get
 
