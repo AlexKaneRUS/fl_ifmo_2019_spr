@@ -96,6 +96,7 @@ gradskellP =  GradskellProgram
           <$> (M.fromList <$> many (many spaceOrCommentaryP *> aDTP))
           <*> (M.fromList . ungroups <$> many (many spaceOrCommentaryP *> functionP))
           <*> (many spaceOrCommentaryP *> expressionP)
+          <*  many spaceOrCommentaryP
 
 aDTP :: ParserS (Type, [Constructor])
 aDTP =  (,)
